@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 
 from .chunker import chunk_markdown
+from .category_router import category_counts, categorize_chunk, focus_instruction
 from .extractor import extract_pdf
-from .llm_parser import parse_chunks
+from .llm_parser import parse_chunk
 from .merger import merge_admission_infos
 from .profile_filter import filter_chunks, write_filtered_chunks
 from .profiler import profile_pdf
@@ -50,13 +51,17 @@ def parse_pdf_for_profile(
                 "background": profile.background,
                 "source_chunks": len(chunks),
                 "selected_chunks": len(filtered_chunks),
+                "category_counts": category_counts(filtered_chunks),
             },
             "selected_chunk_titles": [chunk.title for chunk in filtered_chunks[:50]],
         }
         write_json(output, payload)
         return payload
 
-    partials = parse_chunks(filtered_chunks)
+    partials = [
+        parse_chunk(chunk, focus=focus_instruction(categorize_chunk(chunk)))
+        for chunk in filtered_chunks
+    ]
     merged = merge_admission_infos(partials)
     errors = validate_admission_info(merged)
     if errors:
@@ -69,6 +74,7 @@ def parse_pdf_for_profile(
         "background": profile.background,
         "source_chunks": len(chunks),
         "selected_chunks": len(filtered_chunks),
+        "category_counts": category_counts(filtered_chunks),
     }
     write_json(output, payload)
 

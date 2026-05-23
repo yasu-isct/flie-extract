@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.0 - Category-routed profile extraction
+
+### Added
+
+- Added `admission_parser.category_router` to classify selected chunks before LLM extraction.
+- Added category-specific focus instructions for:
+  - `documents`
+  - `english`
+  - `exams`
+  - `fees`
+  - `methods`
+  - `periods`
+  - `general`
+- Added category counts to `profile_pipeline --dry-run` output.
+- Added tests for category routing.
+
+### Improvement
+
+- Profile pipeline now sends a focused extraction instruction to the LLM for each selected chunk.
+- This reduces unnecessary full-schema extraction behavior and should lower noisy warnings and output bloat.
+- In the sample profile dry-run, 64 selected chunks were categorized as:
+  - documents: 8
+  - english: 11
+  - exams: 14
+  - fees: 9
+  - general: 13
+  - methods: 2
+  - periods: 7
+
+### Known Issues
+
+- The model still returns the top-level `AdmissionInfo` schema for compatibility, even when instructed to focus on one category.
+- A future optimization should use category-specific small schemas to further reduce output size and latency.
+
 ## 0.3.0 - Profile-driven chunk filtering
 
 ### Added

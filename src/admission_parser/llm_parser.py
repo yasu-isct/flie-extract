@@ -25,6 +25,7 @@ USER_TEMPLATE = """
 PDF: {pdf_name}
 Pages: {pages}
 Section title: {title}
+Extraction focus: {focus}
 
 本文:
 {text}
@@ -81,7 +82,7 @@ def _model_for_chunk(chunk: TextChunk, model: str | None = None) -> tuple[str, b
     return default_model, False
 
 
-def parse_chunk(chunk: TextChunk, model: str | None = None) -> AdmissionInfo:
+def parse_chunk(chunk: TextChunk, model: str | None = None, focus: str = "") -> AdmissionInfo:
     selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
     client = _client()
     kwargs = {
@@ -95,6 +96,7 @@ def parse_chunk(chunk: TextChunk, model: str | None = None) -> AdmissionInfo:
                     pdf_name=chunk.pdf_name,
                     pages=chunk.page_numbers,
                     title=chunk.title,
+                    focus=focus or "Extract clearly stated admission information only.",
                     text=chunk.text,
                 ),
             },
