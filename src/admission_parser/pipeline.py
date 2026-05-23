@@ -38,7 +38,7 @@ def main() -> None:
     args = parser.parse_args()
     output = args.output or str(ensure_dir("outputs") / f"{Path(args.pdf).stem}.json")
     payload = parse_pdf(args.pdf, output=output, profile_dir=args.profile_dir)
-    print(json.dumps({"output": output, "warnings": payload.get("warnings", [])}, ensure_ascii=False, indent=2))
+    print(json.dumps({"output": output, "warnings": payload.get("warnings", [])}, ensure_ascii=True, indent=2))
 
 
 if __name__ == "__main__":

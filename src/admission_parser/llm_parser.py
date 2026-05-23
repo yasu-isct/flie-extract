@@ -30,6 +30,22 @@ Section title: {title}
 {text}
 """.strip()
 
+COMPLEX_KEYWORDS = (
+    "提出書類",
+    "出願資格",
+    "検定料",
+    "英語",
+    "TOEFL",
+    "TOEIC",
+    "IELTS",
+    "必着",
+    "消印有効",
+    "該当者",
+    "外国人",
+    "条件",
+    "免除",
+)
+
 
 def _client():
     load_dotenv()
@@ -37,16 +53,41 @@ def _client():
         import instructor
     except ImportError as exc:
         raise RuntimeError("instructor is not installed. Run `pip install -e .[dev]`.") from exc
-    return instructor.from_openai(OpenAI())
+    base_url = os.getenv("OPENAI_BASE_URL")
+    client = OpenAI(base_url=base_url) if base_url else OpenAI()
+    mode_name = os.getenv("INSTRUCTOR_MODE", "JSON").upper()
+    mode = getattr(instructor.Mode, mode_name, instructor.Mode.JSON)
+    return instructor.from_openai(client, mode=mode)
+
+
+def is_complex_chunk(chunk: TextChunk) -> bool:
+    threshold = int(os.getenv("LLM_PRO_COMPLEX_CHAR_THRESHOLD", "7000"))
+    if len(chunk.text) >= threshold:
+        return True
+    haystack = f"{chunk.title}\n{chunk.text}"
+    keyword_hits = sum(1 for keyword in COMPLEX_KEYWORDS if keyword in haystack)
+    return len(chunk.text) >= 2500 and keyword_hits >= 3
+
+
+def _model_for_chunk(chunk: TextChunk, model: str | None = None) -> tuple[str, bool]:
+    load_dotenv()
+    if model:
+        return model, False
+    default_model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    pro_model = os.getenv("OPENAI_PRO_MODEL", "deepseek-v4-pro")
+    use_pro = os.getenv("LLM_USE_PRO_FOR_COMPLEX", "true").lower() in {"1", "true", "yes"}
+    if use_pro and is_complex_chunk(chunk):
+        return pro_model, True
+    return default_model, False
 
 
 def parse_chunk(chunk: TextChunk, model: str | None = None) -> AdmissionInfo:
-    model = model or os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
     client = _client()
-    return client.chat.completions.create(
-        model=model,
-        response_model=AdmissionInfo,
-        messages=[
+    kwargs = {
+        "model": selected_model,
+        "response_model": AdmissionInfo,
+        "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
@@ -58,8 +99,23 @@ def parse_chunk(chunk: TextChunk, model: str | None = None) -> AdmissionInfo:
                 ),
             },
         ],
-        max_retries=2,
-    )
+        "max_retries": 2,
+    }
+    if use_pro_options:
+        if os.getenv("OPENAI_PRO_REASONING_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            kwargs["reasoning_effort"] = os.getenv("OPENAI_PRO_REASONING_EFFORT", "high")
+        if os.getenv("OPENAI_PRO_THINKING_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+            kwargs["max_retries"] = 1
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        error_text = repr(exc) + "\n" + str(exc)
+        if use_pro_options and "Thinking mode" in error_text and "tool_choice" in error_text:
+            kwargs.pop("extra_body", None)
+            kwargs["max_retries"] = 2
+            return client.chat.completions.create(**kwargs)
+        raise
 
 
 def parse_chunks(chunks: Iterable[TextChunk], model: str | None = None) -> list[AdmissionInfo]:

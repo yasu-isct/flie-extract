@@ -1,0 +1,68 @@
+# Changelog
+
+## 0.2.0 - Personalized report MVP
+
+### Added
+
+- Added DeepSeek OpenAI-compatible API support through `OPENAI_BASE_URL`.
+- Added `INSTRUCTOR_MODE=JSON` support for DeepSeek-compatible structured extraction.
+- Added automatic model routing:
+  - Flash model for normal extraction.
+  - Pro model for long or multi-condition chunks.
+- Added configurable model settings in `.env.example`:
+  - `OPENAI_MODEL`
+  - `OPENAI_PRO_MODEL`
+  - `OPENAI_PRO_REASONING_ENABLED`
+  - `OPENAI_PRO_THINKING_ENABLED`
+  - `LLM_USE_PRO_FOR_COMPLEX`
+  - `LLM_PRO_COMPLEX_CHAR_THRESHOLD`
+- Added `admission_parser.reporter` to generate human-readable Markdown reports from parsed JSON.
+- Added applicant profile filtering for reports:
+  - target college / department / program keywords via `--target`
+  - English test type via `--english-test`
+  - applicant background via `--background`
+- Added `.idea/` to `.gitignore`.
+
+### Fixed
+
+- Fixed DeepSeek API compatibility issue where Instructor's default tool-calling mode caused:
+  - `Thinking mode does not support this tool_choice`
+- Fixed Windows console `UnicodeEncodeError` when `pipeline.py` printed Japanese warnings to a GBK console.
+- Fixed overly aggressive Pro routing that sent short keyword chunks to `deepseek-v4-pro`, causing the full parse to run too slowly.
+- Restored `.env.example` after it was accidentally removed locally.
+
+### Generated Artifacts
+
+- `outputs/2027_4_2026_9_master.json`
+  - First full structured JSON output from the sample PDF.
+- `outputs/2027_4_2026_9_master_report.md`
+  - General readable report.
+- `outputs/2027_4_2026_9_master_personal_report.md`
+  - Applicant-profile filtered report for:
+    - `情報理工学院`
+    - `数理・計算科学系`
+    - `情報工学系`
+    - TOEFL
+    - China mainland undergraduate background
+
+These generated artifacts remain ignored by Git through `outputs/`.
+
+### Known Issues
+
+- The current JSON schema does not yet attach every extracted item to a precise college / department / program.
+- Applicant-profile filtering is currently rule-based and keyword-based, so it may keep some general information or miss items that are implicitly tied to a department.
+- Some extracted dates remain `null` when the source chunk omits the year or when the model does not infer it safely.
+- The JSON output is still a machine-readable intermediate artifact; the Markdown report should be treated as the human-facing output.
+- Source page numbers are incomplete for some extracted items because not every chunk retained page metadata cleanly.
+
+### Next Steps
+
+- Extend schema fields with:
+  - `target_college`
+  - `target_department`
+  - `target_program`
+  - `applicable_background`
+  - `applicable_english_test`
+- Improve chunk page metadata preservation.
+- Add tests for `reporter.py` profile filtering.
+- Add a checklist-style report mode for applicant task tracking.
