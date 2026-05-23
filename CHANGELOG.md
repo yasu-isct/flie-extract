@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.0 - Profile-driven chunk filtering
+
+### Added
+
+- Added `admission_parser.profile_filter` for applicant-profile based chunk filtering before LLM calls.
+- Added `admission_parser.profile_pipeline` to parse PDFs with user profile inputs:
+  - `--target`
+  - `--english-test`
+  - `--background`
+  - `--dry-run`
+- Added dry-run mode to inspect how many chunks would be sent to the LLM before spending API tokens.
+- Added tests for profile chunk filtering.
+
+### Improvement
+
+- The pipeline can now filter chunks before LLM extraction instead of parsing the whole relevant-page set first.
+- Example profile:
+  - `情報理工学院`
+  - `数理・計算科学系`
+  - `情報工学系`
+  - TOEFL
+  - China mainland undergraduate background
+- In the sample PDF dry-run, chunks were reduced from 123 to 64 before LLM calls.
+
+### Known Issues
+
+- Filtering is still rule-based and keyword-based.
+- General chunks such as application periods and submission methods are intentionally retained, so some non-personal noise may remain.
+- Department-specific extraction will be more accurate after the schema is extended with explicit target program fields.
+
 ## 0.2.0 - Personalized report MVP
 
 ### Added
