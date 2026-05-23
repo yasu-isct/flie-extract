@@ -2,23 +2,32 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict
-from typing import Iterable
+from typing import Iterable, Type
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel
 
 from .chunker import TextChunk
-from .schemas import AdmissionInfo
+from .schemas import (
+    AdmissionInfo,
+    DocumentExtraction,
+    EnglishExtraction,
+    ExamExtraction,
+    FeeExtraction,
+    MethodExtraction,
+    PeriodExtraction,
+)
 
 SYSTEM_PROMPT = """
-あなたは日本の大学院募集要項PDFから出願情報を抽出する専門家です。
-必ず与えられた本文に書かれている情報だけを抽出してください。推測は禁止です。
-日付は可能な限り西暦 ISO 形式 YYYY-MM-DD に正規化してください。
-令和・平成などの元号は西暦に変換してください。
-「必着」と「消印有効」は厳密に区別してください。
-表の内容も本文と同じ重要度で扱ってください。
-不明な項目は空文字、null、または不明 enum を使ってください。
-主要な日本語名称には、中文表示用の name_zh / graduate_school_zh も可能な範囲で付与してください。
+You extract structured admission information from Japanese graduate admission guideline PDFs.
+Use only information explicitly present in the provided text. Do not guess.
+Normalize dates to ISO format YYYY-MM-DD when the year is clear.
+Convert Japanese era years such as 令和 and 平成 to Gregorian years when possible.
+Strictly distinguish 必着 from 消印有効.
+Treat Markdown tables as equally important as prose.
+Use empty strings, null, empty lists, or unknown enum values when information is not present.
+For Japanese names, add Chinese display names when the schema has a *_zh field.
 """.strip()
 
 USER_TEMPLATE = """
@@ -27,7 +36,7 @@ Pages: {pages}
 Section title: {title}
 Extraction focus: {focus}
 
-本文:
+Text:
 {text}
 """.strip()
 
@@ -46,6 +55,16 @@ COMPLEX_KEYWORDS = (
     "条件",
     "免除",
 )
+
+CATEGORY_RESPONSE_MODELS: dict[str, Type[BaseModel]] = {
+    "periods": PeriodExtraction,
+    "methods": MethodExtraction,
+    "documents": DocumentExtraction,
+    "exams": ExamExtraction,
+    "fees": FeeExtraction,
+    "english": EnglishExtraction,
+    "general": AdmissionInfo,
+}
 
 
 def _client():
@@ -82,12 +101,17 @@ def _model_for_chunk(chunk: TextChunk, model: str | None = None) -> tuple[str, b
     return default_model, False
 
 
-def parse_chunk(chunk: TextChunk, model: str | None = None, focus: str = "") -> AdmissionInfo:
+def _create_response(
+    chunk: TextChunk,
+    response_model: Type[BaseModel],
+    model: str | None = None,
+    focus: str = "",
+) -> BaseModel:
     selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
     client = _client()
     kwargs = {
         "model": selected_model,
-        "response_model": AdmissionInfo,
+        "response_model": response_model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -115,9 +139,42 @@ def parse_chunk(chunk: TextChunk, model: str | None = None, focus: str = "") -> 
         error_text = repr(exc) + "\n" + str(exc)
         if use_pro_options and "Thinking mode" in error_text and "tool_choice" in error_text:
             kwargs.pop("extra_body", None)
+            kwargs.pop("reasoning_effort", None)
             kwargs["max_retries"] = 2
             return client.chat.completions.create(**kwargs)
         raise
+
+
+def _focused_to_admission_info(result: BaseModel) -> AdmissionInfo:
+    if isinstance(result, AdmissionInfo):
+        return result
+    payload = result.model_dump()
+    return AdmissionInfo(
+        application_periods=payload.get("application_periods", []),
+        submission_methods=payload.get("submission_methods", []),
+        required_documents=payload.get("required_documents", []),
+        exam_schedules=payload.get("exam_schedules", []),
+        fees=payload.get("fees", []),
+        english_requirements=payload.get("english_requirements", []),
+        global_submission_rules=payload.get("global_submission_rules", []),
+        warnings=payload.get("warnings", []),
+    )
+
+
+def parse_chunk(chunk: TextChunk, model: str | None = None, focus: str = "") -> AdmissionInfo:
+    result = _create_response(chunk, AdmissionInfo, model=model, focus=focus)
+    return _focused_to_admission_info(result)
+
+
+def parse_chunk_by_category(
+    chunk: TextChunk,
+    category: str,
+    model: str | None = None,
+    focus: str = "",
+) -> AdmissionInfo:
+    response_model = CATEGORY_RESPONSE_MODELS.get(category, AdmissionInfo)
+    result = _create_response(chunk, response_model, model=model, focus=focus)
+    return _focused_to_admission_info(result)
 
 
 def parse_chunks(chunks: Iterable[TextChunk], model: str | None = None) -> list[AdmissionInfo]:

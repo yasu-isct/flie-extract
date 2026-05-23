@@ -98,3 +98,36 @@ class AdmissionInfo(BaseModel):
     @classmethod
     def strip_rules(cls, values: list[str]) -> list[str]:
         return [value.strip() for value in values if value and value.strip()]
+
+
+class PeriodExtraction(BaseModel):
+    application_periods: list[ApplicationPeriod] = Field(default_factory=list)
+    global_submission_rules: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class MethodExtraction(BaseModel):
+    submission_methods: list[SubmissionMethod] = Field(default_factory=list)
+    global_submission_rules: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DocumentExtraction(BaseModel):
+    required_documents: list[RequiredDocument] = Field(default_factory=list)
+    global_submission_rules: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ExamExtraction(BaseModel):
+    exam_schedules: list[ExamSchedule] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class FeeExtraction(BaseModel):
+    fees: list[FeeInfo] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class EnglishExtraction(BaseModel):
+    english_requirements: list[EnglishRequirement] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

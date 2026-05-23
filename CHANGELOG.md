@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0 - Category-specific extraction schemas
+
+### Added
+
+- Added category-specific Pydantic extraction schemas:
+  - `PeriodExtraction`
+  - `MethodExtraction`
+  - `DocumentExtraction`
+  - `ExamExtraction`
+  - `FeeExtraction`
+  - `EnglishExtraction`
+- Added `parse_chunk_by_category` to route each chunk to the smallest relevant response schema.
+- Added tests for category response-model routing and conversion back to `AdmissionInfo`.
+
+### Improvement
+
+- Profile pipeline now uses category-specific small schemas instead of always requesting the full `AdmissionInfo` schema.
+- This should reduce output size, noisy empty fields, and LLM latency for profile-driven parsing.
+- The final merged output remains compatible with the existing report generator because focused results are converted back into `AdmissionInfo`.
+
+### Known Issues
+
+- General chunks still use the full `AdmissionInfo` schema.
+- The next optimization should add a pre-pass to drop low-value general chunks or summarize them before extraction.
+
 ## 0.4.0 - Category-routed profile extraction
 
 ### Added

@@ -7,7 +7,7 @@ from pathlib import Path
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .extractor import extract_pdf
-from .llm_parser import parse_chunk
+from .llm_parser import parse_chunk_by_category
 from .merger import merge_admission_infos
 from .profile_filter import filter_chunks, write_filtered_chunks
 from .profiler import profile_pdf
@@ -58,10 +58,16 @@ def parse_pdf_for_profile(
         write_json(output, payload)
         return payload
 
-    partials = [
-        parse_chunk(chunk, focus=focus_instruction(categorize_chunk(chunk)))
-        for chunk in filtered_chunks
-    ]
+    partials = []
+    for chunk in filtered_chunks:
+        category = categorize_chunk(chunk)
+        partials.append(
+            parse_chunk_by_category(
+                chunk,
+                category=category,
+                focus=focus_instruction(category),
+            )
+        )
     merged = merge_admission_infos(partials)
     errors = validate_admission_info(merged)
     if errors:
