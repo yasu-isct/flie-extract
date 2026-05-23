@@ -1,0 +1,7 @@
+universities:
+  - name: "東京大学"
+    research_dept: "工学系研究科"
+    entry_info_url: "https://example.ac.jp/admission/"
+    pdf_link_selector: "a[href$='.pdf']"
+    encoding: "utf-8"
+    delay_seconds: [3, 5]

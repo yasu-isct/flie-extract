@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "admission-pdf-parser"
+version = "0.1.0"
+description = "Parse Japanese graduate admission PDFs into structured JSON."
+requires-python = ">=3.10"
+dependencies = [
+    "PyMuPDF>=1.24.0",
+    "pdfplumber>=0.11.0",
+    "pydantic>=2.7.0",
+    "instructor>=1.3.0",
+    "openai>=1.35.0",
+    "python-dotenv>=1.0.1",
+    "PyYAML>=6.0.1",
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.12.0",
+    "deepdiff>=7.0.0",
+    "APScheduler>=3.10.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0", "ruff>=0.5.0"]
+stage2 = ["playwright>=1.45.0"]
+stage3 = ["streamlit>=1.36.0", "plotly>=5.22.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

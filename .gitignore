@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Environments
+venv/
+.venv/
+env/
+.conda/
+
+# Secrets
+.env
+*.key
+
+# Project data
+*.pdf
+data/
+downloads/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs / generated outputs
+logs/*.log
+outputs/
+*_relevant_pages.json
+*_profile.json
