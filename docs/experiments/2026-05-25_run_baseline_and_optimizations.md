@@ -211,6 +211,82 @@ Full optimized profile run:
   --report-output outputs\2027_4_2026_9_master_profile_optimized_report.md
 ```
 
+## Optimized Profile Run Result
+
+Run date:
+
+```text
+2026-05-25
+```
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --target 情報理工学院 `
+  --target 数理・計算科学系 `
+  --target 情報工学系 `
+  --english-test toefl `
+  --background cn_undergrad `
+  --output outputs\2027_4_2026_9_master_profile_optimized.json `
+  --report-output outputs\2027_4_2026_9_master_profile_optimized_report.md
+```
+
+Runtime:
+
+```text
+571.91s
+```
+
+Output files:
+
+```text
+outputs/2027_4_2026_9_master_profile_optimized.json
+outputs/2027_4_2026_9_master_profile_optimized_report.md
+```
+
+Optimized output summary:
+
+| Field | Count |
+| --- | ---: |
+| application_periods | 2 |
+| submission_methods | 3 |
+| required_documents | 28 |
+| exam_schedules | 20 |
+| fees | 9 |
+| english_requirements | 10 |
+| warnings | 11 |
+
+Profile routing summary:
+
+| Metric | Count |
+| --- | ---: |
+| source_chunks | 123 |
+| selected_chunks | 64 |
+| documents | 8 |
+| english | 11 |
+| exams | 14 |
+| fees | 9 |
+| general | 13 |
+| methods | 2 |
+| periods | 7 |
+
+Comparison with previous full run:
+
+| Metric | Previous full run | Optimized profile run |
+| --- | ---: | ---: |
+| runtime | 1945s | 571.91s |
+| JSON size | 53,485 bytes | 29,507 bytes |
+| report size | 17,064 bytes | 7,081 bytes |
+| warnings | 82 | 11 |
+
+Observed improvement:
+
+- Runtime reduced by about 70.6%.
+- JSON size reduced by about 44.8%.
+- Warning count reduced by about 86.6%.
+- Output is now profile-specific rather than full-document oriented.
+
 ## Rollback Reference
 
 Known commits:
