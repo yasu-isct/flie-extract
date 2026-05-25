@@ -31,5 +31,6 @@ downloads/
 # Logs / generated outputs
 logs/*.log
 outputs/
+backups/
 *_relevant_pages.json
 *_profile.json
