@@ -76,10 +76,23 @@ class FeeInfo(BaseModel):
 
 class EnglishRequirement(BaseModel):
     test_type: str = Field("", description="TOEFL, TOEIC, IELTSなど")
+    accepted_variants: list[str] = Field(default_factory=list, description="例: TOEFL iBT, TOEFL iBT Home Edition")
+    rejected_variants: list[str] = Field(default_factory=list, description="例: TOEFL ITP, TOEIC IP")
     minimum_score: str = ""
     direct_delivery_required: bool | None = Field(None, description="直送要否")
+    institution_code: str = Field("", description="ETS DI codeなど")
+    applicable_to: str = Field("", description="対象専攻、対象者、適用条件")
+    exceptions: list[str] = Field(default_factory=list, description="例外条件")
     condition_logic: Literal["AND", "OR", "UNKNOWN"] = "UNKNOWN"
     notes: str = ""
+    source_pages: list[int] = Field(default_factory=list)
+
+
+class ExtractionWarning(BaseModel):
+    field: str = Field("", description="Affected field, such as fees or exam_schedules")
+    message: str = Field("", description="Chinese warning message")
+    category: str = Field("", description="Chunk category or warning category")
+    severity: Literal["info", "warning", "error"] = "warning"
     source_pages: list[int] = Field(default_factory=list)
 
 
@@ -93,6 +106,7 @@ class AdmissionInfo(BaseModel):
     english_requirements: list[EnglishRequirement] = Field(default_factory=list)
     global_submission_rules: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
     @field_validator("global_submission_rules")
     @classmethod
@@ -104,30 +118,36 @@ class PeriodExtraction(BaseModel):
     application_periods: list[ApplicationPeriod] = Field(default_factory=list)
     global_submission_rules: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 
 class MethodExtraction(BaseModel):
     submission_methods: list[SubmissionMethod] = Field(default_factory=list)
     global_submission_rules: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 
 class DocumentExtraction(BaseModel):
     required_documents: list[RequiredDocument] = Field(default_factory=list)
     global_submission_rules: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 
 class ExamExtraction(BaseModel):
     exam_schedules: list[ExamSchedule] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 
 class FeeExtraction(BaseModel):
     fees: list[FeeInfo] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 
 class EnglishExtraction(BaseModel):
     english_requirements: list[EnglishRequirement] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    structured_warnings: list[ExtractionWarning] = Field(default_factory=list)

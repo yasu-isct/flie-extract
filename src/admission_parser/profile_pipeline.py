@@ -8,7 +8,7 @@ from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .extractor import extract_pdf
 from .llm_parser import parse_chunk_by_category
-from .merger import merge_admission_infos
+from .merger import merge_admission_infos, warning_to_structured
 from .profile_filter import filter_chunks, write_filtered_chunks
 from .profiler import profile_pdf
 from .reporter import ApplicantProfile, build_report
@@ -72,6 +72,7 @@ def parse_pdf_for_profile(
     errors = validate_admission_info(merged)
     if errors:
         merged.warnings.extend(errors)
+        merged.structured_warnings.extend(warning_to_structured(error) for error in errors)
 
     payload = merged.model_dump(mode="json")
     payload["_profile"] = {

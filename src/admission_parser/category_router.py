@@ -14,13 +14,13 @@ CATEGORY_KEYWORDS = {
 }
 
 FOCUS_INSTRUCTIONS = {
-    "english": "Focus only on English test requirements. Fill english_requirements; keep unrelated lists empty unless directly needed.",
-    "fees": "Focus only on application fees and payment rules. Fill fees; keep unrelated lists empty unless directly needed.",
-    "documents": "Focus only on required documents and document conditions. Fill required_documents; keep unrelated lists empty unless directly needed.",
-    "periods": "Focus only on application periods, deadlines, and must-arrive/postmark rules. Fill application_periods; keep unrelated lists empty unless directly needed.",
-    "exams": "Focus only on exam schedules, admission events, result announcements, and test locations. Fill exam_schedules; keep unrelated lists empty unless directly needed.",
-    "methods": "Focus only on submission/application methods, destinations, online registration, and postal rules. Fill submission_methods; keep unrelated lists empty unless directly needed.",
-    "general": "Extract only clearly stated admission information. Avoid warnings for irrelevant text.",
+    "english": "只抽取英语外部考试要求。填写 english_requirements；无关字段保持空。若未找到英语要求，返回空列表，不要输出英文 warning。请拆分 accepted_variants、rejected_variants、institution_code、applicable_to、exceptions。",
+    "fees": "只抽取检定料、支付方式、免除条件。填写 fees；无关字段保持空。若未找到费用信息，返回空列表，不要输出英文 warning。",
+    "documents": "只抽取提交材料、份数、指定格式、提交条件。填写 required_documents；无关字段保持空。若未找到材料信息，返回空列表，不要输出英文 warning。",
+    "periods": "只抽取出愿期间、提交期限、必着/消印有效规则。填写 application_periods；无关字段保持空。若未找到期限信息，返回空列表，不要输出英文 warning。",
+    "exams": "只抽取考试日程、合格发表、受验票、地点。填写 exam_schedules；无关字段保持空。若未找到考试日程，返回空列表，不要输出英文 warning。",
+    "methods": "只抽取出愿方式、提交方式、邮寄地址、线上注册规则。填写 submission_methods；无关字段保持空。若未找到提交方式，返回空列表，不要输出英文 warning。",
+    "general": "只抽取文本中明确写出的招生信息。无关文本不要输出 warning；所有 warning 必须用中文。",
 }
 
 

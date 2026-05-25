@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.0 - Output quality cleanup
+
+### Added
+
+- Added structured warning schema:
+  - `ExtractionWarning`
+  - `AdmissionInfo.structured_warnings`
+- Added extended English requirement fields:
+  - `accepted_variants`
+  - `rejected_variants`
+  - `institution_code`
+  - `applicable_to`
+  - `exceptions`
+- Added fuzzy merge tests for repeated periods, duplicate documents, English variants, and warning structuring.
+
+### Improved
+
+- Strengthened LLM prompts to prevent English fallback warnings.
+- Category focus instructions now explicitly require Chinese warnings and empty lists when focused information is absent.
+- Added fuzzy deduplication in `merger.py` for:
+  - application periods
+  - required documents
+  - submission methods
+  - exam schedules
+  - fees
+  - English requirements
+- Reports now display structured English-test details such as accepted variants, rejected variants, institution code, target scope, and exceptions.
+
+### Fixed
+
+- Reduced duplicate application-period rows caused by repeated PDF content across pages/chunks.
+- Preserved distinct English variants such as `TOEFL iBT` and `TOEFL iBT Home Edition` instead of collapsing them as duplicates.
+- Converted validator-generated warning strings into structured warnings as well as legacy warning strings.
+
 ## 0.5.0 - Category-specific extraction schemas
 
 ### Added

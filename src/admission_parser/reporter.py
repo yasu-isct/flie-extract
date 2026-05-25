@@ -412,8 +412,13 @@ def build_report(data: dict[str, Any], profile: ApplicantProfile | None = None) 
     useful_english = [item for item in english if item.get("test_type") or item.get("notes")]
     for item in useful_english:
         detail = _line_parts(
+            f"接受类型: {'、'.join(item.get('accepted_variants', []))}" if item.get("accepted_variants") else "",
+            f"不接受类型: {'、'.join(item.get('rejected_variants', []))}" if item.get("rejected_variants") else "",
             f"最低分: {_clean(item.get('minimum_score'))}" if item.get("minimum_score") else "",
             "需直送" if item.get("direct_delivery_required") is True else "",
+            f"机构代码: {_clean(item.get('institution_code'))}" if item.get("institution_code") else "",
+            f"适用对象: {_shorten(item.get('applicable_to'), 100)}" if item.get("applicable_to") else "",
+            f"例外: {' / '.join(item.get('exceptions', []))}" if item.get("exceptions") else "",
             f"条件: {_clean(item.get('condition_logic'))}" if item.get("condition_logic") not in ("", "UNKNOWN", None) else "",
             "" if _is_low_value(item.get("notes")) else _shorten(item.get("notes"), 180),
         )

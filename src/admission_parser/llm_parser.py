@@ -20,14 +20,16 @@ from .schemas import (
 )
 
 SYSTEM_PROMPT = """
-You extract structured admission information from Japanese graduate admission guideline PDFs.
-Use only information explicitly present in the provided text. Do not guess.
-Normalize dates to ISO format YYYY-MM-DD when the year is clear.
-Convert Japanese era years such as 令和 and 平成 to Gregorian years when possible.
-Strictly distinguish 必着 from 消印有効.
-Treat Markdown tables as equally important as prose.
-Use empty strings, null, empty lists, or unknown enum values when information is not present.
-For Japanese names, add Chinese display names when the schema has a *_zh field.
+你是日本大学院募集要項 PDF 的结构化抽取专家。
+只抽取本文明确写出的信息，禁止猜测。
+日期在年份明确时必须规范化为 YYYY-MM-DD；令和、平成等元号要尽量转换为西历。
+必须严格区分「必着」和「消印有効」。
+Markdown 表格与正文同等重要。
+没有出现的信息使用空字符串、null、空列表或不明 enum。
+所有 warnings、structured_warnings.message、notes、global_submission_rules 等说明性文本必须使用中文或原文日文，绝对不要输出英文回退句。
+如果当前 focus 指定的信息没有在文本中出现，返回空列表即可；不要写类似 "No ... found" 的 warning。
+只有在文本存在矛盾、歧义或需要人工核验时才输出 warning，并且 warning 必须是中文。
+日文名称对应的中文展示字段（如 name_zh / graduate_school_zh）请尽量补充。
 """.strip()
 
 USER_TEMPLATE = """
@@ -36,7 +38,7 @@ Pages: {pages}
 Section title: {title}
 Extraction focus: {focus}
 
-Text:
+本文:
 {text}
 """.strip()
 
@@ -158,6 +160,7 @@ def _focused_to_admission_info(result: BaseModel) -> AdmissionInfo:
         english_requirements=payload.get("english_requirements", []),
         global_submission_rules=payload.get("global_submission_rules", []),
         warnings=payload.get("warnings", []),
+        structured_warnings=payload.get("structured_warnings", []),
     )
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from .chunker import chunk_markdown
 from .extractor import extract_pdf
 from .llm_parser import parse_chunks
-from .merger import merge_admission_infos
+from .merger import merge_admission_infos, warning_to_structured
 from .profiler import profile_pdf
 from .utils import ensure_dir, write_json
 from .validator import validate_admission_info
@@ -25,6 +25,7 @@ def parse_pdf(pdf_path: str | Path, output: str | Path, profile_dir: str | Path 
     errors = validate_admission_info(merged)
     if errors:
         merged.warnings.extend(errors)
+        merged.structured_warnings.extend(warning_to_structured(error) for error in errors)
     payload = merged.model_dump(mode="json")
     write_json(output, payload)
     return payload
