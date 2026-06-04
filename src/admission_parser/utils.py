@@ -5,6 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+OUTPUT_ROOT = Path("outputs")
+FINAL_JSON_DIR = OUTPUT_ROOT / "final_json"
+FINAL_REPORTS_DIR = OUTPUT_ROOT / "final_reports"
+INTERMEDIATE_DIR = OUTPUT_ROOT / "intermediate"
+DIAGNOSTICS_DIR = OUTPUT_ROOT / "diagnostics"
+SMOKE_TESTS_DIR = OUTPUT_ROOT / "smoke_tests"
+
 
 def ensure_dir(path: str | Path) -> Path:
     target = Path(path)

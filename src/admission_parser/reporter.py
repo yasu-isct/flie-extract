@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .utils import FINAL_REPORTS_DIR, ensure_dir
+
 LOW_VALUE_PATTERNS = [
     r"注意事項は.*確認すること",
     r"詳細は.*参照",
@@ -464,7 +466,11 @@ def main() -> None:
         english_test=args.english_test,
         background=args.background,
     )
-    output = Path(args.output) if args.output else json_path.with_name(f"{json_path.stem}_report.md")
+    output = (
+        Path(args.output)
+        if args.output
+        else ensure_dir(FINAL_REPORTS_DIR) / f"{json_path.stem}_report.md"
+    )
     output.write_text(build_report(data, profile), encoding="utf-8")
     print(str(output))
 

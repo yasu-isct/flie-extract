@@ -1,0 +1,14 @@
+target_college:
+  - 情報理工学院
+target_department:
+  - 数理・計算科学系
+  - 情報工学系
+target_program: []
+degree_level: master
+exam_type: general
+english_test: toefl
+background: cn_undergrad
+nationality_or_region: china
+application_channel: ""
+include_global_sections: true
+strict_mode: false

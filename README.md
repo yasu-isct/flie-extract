@@ -32,6 +32,8 @@
 │  ├─ extractor.py                  # PyMuPDF + pdfplumber 文本/表格提取
 │  ├─ chunker.py                    # Markdown 文本切片
 │  ├─ profile_filter.py             # 按申请者画像筛选 chunks
+│  ├─ profile_input.py              # 画像输入：CLI/YAML/交互式输入
+│  ├─ cursor_selector.py            # 画像游标构建与 chunk 精选
 │  ├─ category_router.py            # chunks 分类：材料、英语、考试、费用等
 │  ├─ schemas.py                    # Pydantic 输出模型
 │  ├─ llm_parser.py                 # Instructor + OpenAI-compatible LLM 调用
@@ -107,31 +109,68 @@ LLM_PRO_COMPLEX_CHAR_THRESHOLD=7000
 
 ## 推荐运行方式：画像驱动解析
 
-先用 dry-run 看会筛出多少 chunks，不会调用 API，也不会花 token：
+推荐先使用画像配置文件。模板在：
+
+```text
+configs/applicant_profile.example.yaml
+```
+
+示例内容：
+
+```yaml
+target_college:
+  - 情報理工学院
+target_department:
+  - 数理・計算科学系
+  - 情報工学系
+degree_level: master
+exam_type: general
+english_test: toefl
+background: cn_undergrad
+nationality_or_region: china
+include_global_sections: true
+strict_mode: false
+```
+
+先用 dry-run 看游标会筛出多少 chunks，不会调用 API，也不会花 token：
 
 ```powershell
 .\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --target 情報理工学院 `
-  --target 数理・計算科学系 `
-  --target 情報工学系 `
-  --english-test toefl `
-  --background cn_undergrad `
-  --dry-run `
-  --output outputs\profile_dry_run.json
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run
 ```
 
 确认筛选范围合理后，运行真正的 LLM 抽取：
 
 ```powershell
 .\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --target 情報理工学院 `
-  --target 数理・計算科学系 `
-  --target 情報工学系 `
+  --profile-config configs\applicant_profile.example.yaml `
+  --output outputs\final_json\2027_4_2026_9_master_profile_optimized.json `
+  --report-output outputs\final_reports\2027_4_2026_9_master_profile_optimized_report.md
+```
+
+也可以不用配置文件，直接通过 CLI 输入画像：
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --target-college 情報理工学院 `
+  --target-department 数理・計算科学系 `
+  --target-department 情報工学系 `
+  --degree-level master `
+  --exam-type general `
   --english-test toefl `
   --background cn_undergrad `
-  --output outputs\2027_4_2026_9_master_profile_optimized.json `
-  --report-output outputs\2027_4_2026_9_master_profile_optimized_report.md
+  --nationality-or-region china `
+  --dry-run
 ```
+
+如果想逐项输入，可以使用：
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf --interactive --dry-run
+```
+
+旧参数 `--target` 仍然兼容，但新实验建议优先使用 `--target-college`、`--target-department`、`--degree-level`、`--exam-type` 等更细的游标字段。
 
 `--background` 可选值：
 
@@ -145,7 +184,7 @@ LLM_PRO_COMPLEX_CHAR_THRESHOLD=7000
 
 ```powershell
 .\.venv\Scripts\python.exe -m admission_parser.pipeline samples\2027_4_2026_9_master.pdf `
-  --output outputs\2027_4_2026_9_master.json
+  --output outputs\final_json\2027_4_2026_9_master.json
 ```
 
 这会比画像驱动版本更慢、更贵，也更容易保留对当前申请者无用的信息。
@@ -153,13 +192,13 @@ LLM_PRO_COMPLEX_CHAR_THRESHOLD=7000
 ## 从已有 JSON 生成报告
 
 ```powershell
-.\.venv\Scripts\python.exe -m admission_parser.reporter outputs\2027_4_2026_9_master_profile_optimized.json `
+.\.venv\Scripts\python.exe -m admission_parser.reporter outputs\final_json\2027_4_2026_9_master_profile_optimized.json `
   --target 情報理工学院 `
   --target 数理・計算科学系 `
   --target 情報工学系 `
   --english-test toefl `
   --background cn_undergrad `
-  --output outputs\personal_report.md
+  --output outputs\final_reports\personal_report.md
 ```
 
 ## 输出文件说明
@@ -174,13 +213,25 @@ PDF
 *_relevant_clean.md         # 相关页清洗后的 Markdown 文本，给人和 LLM 都能读
   ↓ chunker.py
 *_relevant_chunks.json      # 带页码/标题/来源的切片，是 LLM 批量抽取的输入
+  ↓ profile_input.py + cursor_selector.py
+*_cursor_chunks.json        # 画像游标筛出的 LLM 输入
+*_cursor_decisions.json     # 每个 chunk 被保留/丢弃的原因
   ↓ profile_pipeline.py + LLM + merger.py + validator.py
 *_profile_optimized.json    # 最终结构化 JSON，适合程序读取
 *_profile_optimized_report.md # 最终可读报告，适合人工查看
 ```
 
+默认输出目录已经按用途分层：
+
+- `outputs/final_reports/`：最终可读报告
+- `outputs/final_json/`：最终结构化 JSON
+- `outputs/intermediate/`：PDF 清洗、相关页、chunks 等过程文件
+- `outputs/diagnostics/`：dry-run、chunk 选择决策等诊断文件
+- `outputs/smoke_tests/`：小规模 API 测试结果
+
 `*_relevant_pages.json` 不是最终结果，它的作用是解释“为什么这些页面被选中”。  
 `*_relevant_chunks.json` 是把清洗后的 Markdown 拆成小块，方便模型逐块抽取，也方便后续做 token 压缩研究。  
+`*_cursor_decisions.json` 是游标筛选日志，适合检查哪些 chunk 被保留、哪些被丢弃，以及原因是什么。  
 真正建议查看的是 `*_profile_optimized_report.md`，JSON 更适合后端、看板和后续自动化使用。
 
 ## 已记录的优化结果
@@ -200,6 +251,8 @@ docs/experiments/2026-05-25_run_baseline_and_optimizations.md
 
 这些数据说明当前优化方向已经明显降低了 API 时间和输出噪声，但还没有完成“本地 8B 模型也能稳定达到同等效果”的研究目标。
 
+新增画像游标后，当前样本 dry-run 进一步将 chunks 从 `123` 压到 `51`。这个结果还需要用下一次 LLM 实跑确认字段遗漏率，但它已经可以作为 token 压缩实验的输入侧优化版本。
+
 ## 测试
 
 ```powershell
@@ -210,6 +263,8 @@ docs/experiments/2026-05-25_run_baseline_and_optimizations.md
 
 - chunker 切片
 - profile_filter 画像过滤
+- profile_input 画像输入
+- cursor_selector 画像游标筛选
 - category_router 分类路由
 - llm_parser 分类 schema 路由
 - merger 去重和 structured warnings

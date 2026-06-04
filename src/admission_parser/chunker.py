@@ -6,6 +6,8 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .utils import INTERMEDIATE_DIR
+
 TITLE_RE = re.compile(
     r"^(?:[【\[][^】\]]+[】\]]|[0-9０-９]+[\.．、]\s*.+|[（(][0-9０-９一二三四五六七八九十]+[）)]\s*.+)$",
     re.MULTILINE,
@@ -73,7 +75,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("markdown")
     parser.add_argument("--pdf-name", required=True)
-    parser.add_argument("--output", default="outputs/chunks.json")
+    parser.add_argument("--output", default=str(INTERMEDIATE_DIR / "chunks.json"))
     parser.add_argument("--max-chars", type=int, default=6000)
     args = parser.parse_args()
     markdown = Path(args.markdown).read_text(encoding="utf-8")

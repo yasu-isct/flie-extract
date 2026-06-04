@@ -9,11 +9,15 @@ from .extractor import extract_pdf
 from .llm_parser import parse_chunks
 from .merger import merge_admission_infos, warning_to_structured
 from .profiler import profile_pdf
-from .utils import ensure_dir, write_json
+from .utils import FINAL_JSON_DIR, INTERMEDIATE_DIR, ensure_dir, write_json
 from .validator import validate_admission_info
 
 
-def parse_pdf(pdf_path: str | Path, output: str | Path, profile_dir: str | Path = "outputs") -> dict:
+def parse_pdf(
+    pdf_path: str | Path,
+    output: str | Path,
+    profile_dir: str | Path = INTERMEDIATE_DIR,
+) -> dict:
     pdf_path = Path(pdf_path)
     profile = profile_pdf(pdf_path, profile_dir)
     pages = profile["relevant_pages"] or None
@@ -35,9 +39,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf")
     parser.add_argument("--output", default=None)
-    parser.add_argument("--profile-dir", default="outputs")
+    parser.add_argument("--profile-dir", default=str(INTERMEDIATE_DIR))
     args = parser.parse_args()
-    output = args.output or str(ensure_dir("outputs") / f"{Path(args.pdf).stem}.json")
+    output = args.output or str(ensure_dir(FINAL_JSON_DIR) / f"{Path(args.pdf).stem}.json")
     payload = parse_pdf(args.pdf, output=output, profile_dir=args.profile_dir)
     print(json.dumps({"output": output, "warnings": payload.get("warnings", [])}, ensure_ascii=True, indent=2))
 

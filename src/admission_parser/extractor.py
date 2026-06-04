@@ -8,6 +8,8 @@ from pathlib import Path
 import fitz
 import pdfplumber
 
+from .utils import INTERMEDIATE_DIR
+
 
 @dataclass
 class ExtractedPage:
@@ -108,7 +110,7 @@ def extract_pdf_to_markdown(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf")
-    parser.add_argument("--output", default="outputs/clean.md")
+    parser.add_argument("--output", default=str(INTERMEDIATE_DIR / "clean.md"))
     parser.add_argument("--pages", nargs="*", type=int)
     args = parser.parse_args()
     extract_pdf_to_markdown(args.pdf, args.output, args.pages)

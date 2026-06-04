@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.7.0 - Profile cursor input and selection
+
+### Added
+
+- Added `profile_input.py` for optional applicant-profile input through:
+  - CLI arguments
+  - YAML/JSON config files
+  - interactive prompts
+- Added `cursor_selector.py` to convert applicant profiles into extraction cursors.
+- Added `configs/applicant_profile.example.yaml` as a reproducible profile template.
+- Added cursor diagnostics:
+  - `*_cursor_chunks.json`
+  - `*_cursor_decisions.json`
+- Added tests for profile input merging and cursor-based chunk selection.
+
+### Improved
+
+- Profile pipeline now uses profile-guided cursor selection before LLM extraction.
+- New cursor fields include:
+  - target college
+  - target department
+  - target program
+  - degree level
+  - exam type
+  - English test
+  - applicant background
+  - nationality / region
+  - strict mode
+- Default output paths are now organized into:
+  - `outputs/final_reports/`
+  - `outputs/final_json/`
+  - `outputs/intermediate/`
+  - `outputs/diagnostics/`
+  - `outputs/smoke_tests/`
+
+### Observed Effect
+
+- On `2027_4_2026_9_master.pdf`, dry-run chunk selection changed from:
+  - source chunks: `123`
+  - previous profile filter selected chunks: `64`
+  - new cursor-selected chunks: `51`
+
+### Notes
+
+- This is an input-side token compression step. It has not yet been validated with a full LLM re-run for field accuracy and omission rate.
+- The old `--target` argument remains available for compatibility, but new experiments should prefer explicit cursor fields such as `--target-college`, `--target-department`, `--degree-level`, and `--exam-type`.
+
 ## 0.6.0 - Output quality cleanup
 
 ### Added

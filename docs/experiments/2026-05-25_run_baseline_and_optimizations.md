@@ -306,3 +306,76 @@ If the latest small-schema optimization has problems, revert to:
 ```
 
 For normal collaborative workflows, prefer `git revert` instead of rewriting history.
+
+## 2026-06-04 Profile Cursor Input Update
+
+New modules:
+
+```text
+src/admission_parser/profile_input.py
+src/admission_parser/cursor_selector.py
+configs/applicant_profile.example.yaml
+```
+
+Purpose:
+
+- Move from broad keyword filtering to profile-guided cursor selection.
+- Let the user provide optional detailed applicant information before each run.
+- Convert that profile into positive keywords, negative keywords, global-section rules, and target anchors before LLM calls.
+
+Supported input styles:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run
+```
+
+or explicit CLI cursor fields:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --target-college 情報理工学院 `
+  --target-department 数理・計算科学系 `
+  --target-department 情報工学系 `
+  --degree-level master `
+  --exam-type general `
+  --english-test toefl `
+  --background cn_undergrad `
+  --nationality-or-region china `
+  --dry-run
+```
+
+Dry-run result on the current sample:
+
+| Metric | Count |
+| --- | ---: |
+| source_chunks | 123 |
+| previous profile-filter selected_chunks | 64 |
+| new cursor-selected chunks | 51 |
+
+New cursor category counts:
+
+| Category | Count |
+| --- | ---: |
+| documents | 4 |
+| english | 7 |
+| exams | 10 |
+| fees | 7 |
+| general | 19 |
+| methods | 2 |
+| periods | 6 |
+
+Generated diagnostics:
+
+```text
+outputs/diagnostics/2027_4_2026_9_master_profile_dry_run.json
+outputs/diagnostics/2027_4_2026_9_master_profile_dry_run_cursor_chunks.json
+outputs/diagnostics/2027_4_2026_9_master_profile_dry_run_cursor_decisions.json
+```
+
+Interpretation:
+
+- The new cursor layer reduced selected chunks by about 20.3% compared with the previous profile filter (`64 -> 51`).
+- Compared with the original relevant-page chunk set, selected chunks decreased by about 58.5% (`123 -> 51`).
+- This is an input-side token compression result only; the next step is to run the LLM and compare field accuracy, omission rate, runtime, and warnings.

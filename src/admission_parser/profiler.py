@@ -8,7 +8,7 @@ from typing import Any
 import fitz
 import pdfplumber
 
-from .utils import ensure_dir, write_json
+from .utils import INTERMEDIATE_DIR, ensure_dir, write_json
 
 DEFAULT_KEYWORDS = ["出願期間", "提出書類", "受験票", "検定料", "入学願書"]
 
@@ -74,7 +74,7 @@ def profile_pdf(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf")
-    parser.add_argument("--output", default="outputs")
+    parser.add_argument("--output", default=str(INTERMEDIATE_DIR))
     parser.add_argument("--keywords", nargs="*")
     args = parser.parse_args()
     profile = profile_pdf(args.pdf, args.output, args.keywords)
