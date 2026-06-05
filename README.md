@@ -1,8 +1,38 @@
-# 日本大学院募集要項 PDF 解析器
+# Profile-Guided Long Document Extractor
 
-把日本大学院募集要項 PDF 转成结构化 JSON，并进一步生成面向申请者画像的可读报告。
+## English
 
-当前仓库已经完成阶段一 MVP，并在此基础上加入了申请者画像过滤、分类路由、小 Schema 抽取、去重清洗和 Markdown 报告生成。阶段二、三的爬虫、更新检测、数据库、通知和看板模块目前是工程入口和后续扩展方向。
+This project explores **profile-guided cursor extraction for complex long documents**.  
+Instead of sending an entire PDF to an LLM, it first builds a user/profile-specific extraction cursor, narrows the document into high-value chunks, and then applies category-specific structured schemas to generate reliable JSON and human-readable reports.
+
+The current application domain is Japanese graduate admission guidelines, but the core design is reusable for administrative PDFs, policy documents, application manuals, and other long documents where small or local LLMs struggle with cost, context length, and noisy extraction.
+
+## 日本語
+
+本プロジェクトは、**複雑な長文書に対するプロファイル誘導型カーソル抽出**を扱う情報抽出システムです。  
+PDF 全体をそのまま LLM に渡すのではなく、ユーザー条件に基づいて抽出カーソルを構築し、必要なチャンクだけに入力を圧縮したうえで、カテゴリ別の構造化 Schema により JSON と読みやすいレポートを生成します。
+
+現在は日本の大学院募集要項 PDF を題材にしていますが、技術的な目的は、行政文書・申請要項・規程類などの長文 PDF を、小規模モデルでも扱いやすい形へ変換することです。
+
+## 中文说明
+
+当前项目已经从“募集要項 PDF 解析器”升级为“游标 + 结构化 Schema 的长文档信息抽取框架”。募集要項只是示例场景，真正的目标是研究如何通过更精确的输入侧压缩，让复杂长文档也能被小模型或本地模型稳定抽取。
+
+当前仓库已经完成阶段一 MVP，并在此基础上加入了申请者画像输入、游标筛选、分类路由、小 Schema 抽取、去重清洗和 Markdown 报告生成。阶段二、三的爬虫、更新检测、数据库、通知和看板模块目前是工程入口和后续扩展方向。
+
+## GitHub Description
+
+English:
+
+```text
+Profile-guided cursor extraction for long administrative PDFs: compresses LLM input and converts Japanese graduate admission guidelines into structured JSON and readable reports.
+```
+
+日本語:
+
+```text
+プロファイル誘導型カーソル抽出により長文PDFのLLM入力を圧縮し、日本の大学院募集要項を構造化JSONと可読レポートへ変換する情報抽出プロジェクト。
+```
 
 ## 当前状态
 
@@ -10,7 +40,8 @@
 - 相关页筛选：根据「出願期間」「提出書類」「受験票」「検定料」「入学願書」等关键词筛出目标页。
 - 文本清洗：将相关页整理为 Markdown，表格转为 Markdown 表格。
 - 切片：按日文标题和长度切成带页码、标题、PDF 名的 chunks。
-- 画像过滤：根据目标学院/系/专攻、英语考试类型、申请者背景筛掉低价值 chunks。
+- 画像输入：支持 CLI、YAML 配置和交互式输入。
+- 游标筛选：根据目标学院/系/专攻、英语考试类型、申请者背景、入试类型等筛掉低价值 chunks。
 - LLM 抽取：按类别调用更小的 Pydantic Schema，减少 token、输出噪声和等待时间。
 - 后处理：合并多 chunk 结果，去重、校验日期、转换元号、结构化 warnings。
 - 人类可读报告：从 JSON 生成申请者更容易阅读的 Markdown 报告。
