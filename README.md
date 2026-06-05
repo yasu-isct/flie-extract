@@ -5,43 +5,43 @@
 This project explores **profile-guided cursor extraction for complex long documents**.  
 Instead of sending an entire PDF to an LLM, it first builds a user/profile-specific extraction cursor, narrows the document into high-value chunks, and then applies category-specific structured schemas to generate reliable JSON and human-readable reports.
 
-The current application domain is Japanese graduate admission guidelines, but the core design is reusable for administrative PDFs, policy documents, application manuals, and other long documents where small or local LLMs struggle with cost, context length, and noisy extraction.
+It is designed as a reusable extraction framework for administrative PDFs, policy documents, application manuals, and other long documents where small or local LLMs struggle with cost, context length, and noisy extraction.
 
 ## 日本語
 
 本プロジェクトは、**複雑な長文書に対するプロファイル誘導型カーソル抽出**を扱う情報抽出システムです。  
 PDF 全体をそのまま LLM に渡すのではなく、ユーザー条件に基づいて抽出カーソルを構築し、必要なチャンクだけに入力を圧縮したうえで、カテゴリ別の構造化 Schema により JSON と読みやすいレポートを生成します。
 
-現在は日本の大学院募集要項 PDF を題材にしていますが、技術的な目的は、行政文書・申請要項・規程類などの長文 PDF を、小規模モデルでも扱いやすい形へ変換することです。
+行政文書、申請要項、規程類などの長文 PDF を、小規模モデルやローカルモデルでも扱いやすい形へ変換するための汎用的な抽出フレームワークとして設計しています。
 
 ## 中文说明
 
-当前项目已经从“募集要項 PDF 解析器”升级为“游标 + 结构化 Schema 的长文档信息抽取框架”。募集要項只是示例场景，真正的目标是研究如何通过更精确的输入侧压缩，让复杂长文档也能被小模型或本地模型稳定抽取。
+本项目是一个面向复杂长文档的 profile-guided cursor extraction 框架：先根据用户条件构建抽取游标，在 LLM 调用前压缩输入范围，再通过结构化 Schema 输出 JSON 和可读报告。
 
-当前仓库已经完成阶段一 MVP，并在此基础上加入了申请者画像输入、游标筛选、分类路由、小 Schema 抽取、去重清洗和 Markdown 报告生成。阶段二、三的爬虫、更新检测、数据库、通知和看板模块目前是工程入口和后续扩展方向。
+它的目标是成为一个可泛化的长文档信息抽取工具，适用于行政 PDF、申请手册、政策文档、规程说明等高密度文本场景，尤其关注如何降低 token 消耗并提升小模型/本地模型的可用性。
 
 ## GitHub Description
 
 English:
 
 ```text
-Profile-guided cursor extraction for long administrative PDFs: compresses LLM input and converts Japanese graduate admission guidelines into structured JSON and readable reports.
+Profile-guided cursor extraction for complex long PDFs: compresses LLM input and converts dense documents into structured JSON and readable reports.
 ```
 
 日本語:
 
 ```text
-プロファイル誘導型カーソル抽出により長文PDFのLLM入力を圧縮し、日本の大学院募集要項を構造化JSONと可読レポートへ変換する情報抽出プロジェクト。
+プロファイル誘導型カーソル抽出により長文PDFのLLM入力を圧縮し、高密度文書を構造化JSONと可読レポートへ変換する汎用情報抽出プロジェクト。
 ```
 
 ## 当前状态
 
 - PDF 解析：PyMuPDF + pdfplumber 双通道提取文本、block、word 和表格。
-- 相关页筛选：根据「出願期間」「提出書類」「受験票」「検定料」「入学願書」等关键词筛出目标页。
+- 相关页筛选：根据可配置关键词和文档结构信号筛出目标页。
 - 文本清洗：将相关页整理为 Markdown，表格转为 Markdown 表格。
 - 切片：按日文标题和长度切成带页码、标题、PDF 名的 chunks。
 - 画像输入：支持 CLI、YAML 配置和交互式输入。
-- 游标筛选：根据目标学院/系/专攻、英语考试类型、申请者背景、入试类型等筛掉低价值 chunks。
+- 游标筛选：根据目标实体、任务类型、用户条件和背景信息筛掉低价值 chunks。
 - LLM 抽取：按类别调用更小的 Pydantic Schema，减少 token、输出噪声和等待时间。
 - 后处理：合并多 chunk 结果，去重、校验日期、转换元号、结构化 warnings。
 - 人类可读报告：从 JSON 生成申请者更容易阅读的 Markdown 报告。
@@ -91,7 +91,7 @@ python -m venv .venv
 python -m pip install -e .[dev]
 ```
 
-把下载好的募集要項 PDF 放进 `samples/`。例如：
+把用于测试的长文档 PDF 放进 `samples/`。例如：
 
 ```text
 samples/2027_4_2026_9_master.pdf
@@ -211,7 +211,7 @@ strict_mode: false
 
 ## 通用完整解析
 
-如果想不带画像，尽可能抽取整份募集要項的通用信息：
+如果想不带画像，尽可能抽取整份文档的通用信息：
 
 ```powershell
 .\.venv\Scripts\python.exe -m admission_parser.pipeline samples\2027_4_2026_9_master.pdf `
