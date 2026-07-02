@@ -61,12 +61,25 @@ def _merge_pages(*page_lists: list[int]) -> list[int]:
     return pages
 
 
+def _merge_condition_logic(existing: str, new: str) -> str:
+    allowed = {"AND", "OR", "UNKNOWN"}
+    existing = existing if existing in allowed else "UNKNOWN"
+    new = new if new in allowed else "UNKNOWN"
+    if existing == "UNKNOWN":
+        return new
+    if new == "UNKNOWN" or new == existing:
+        return existing
+    return existing
+
+
 def _merge_model(existing: T, new: T) -> T:
     data = existing.model_dump(mode="json")
     incoming = new.model_dump(mode="json")
     for field, value in incoming.items():
         if field == "source_pages":
             data[field] = _merge_pages(data.get(field, []), value or [])
+        elif field == "condition_logic":
+            data[field] = _merge_condition_logic(data.get(field, "UNKNOWN"), value)
         elif isinstance(data.get(field), list) and isinstance(value, list):
             data[field] = _merge_lists(data.get(field, []), value)
         elif isinstance(data.get(field), str) and isinstance(value, str):

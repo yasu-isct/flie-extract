@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.8.0 - Hybrid cursor and local vector retrieval
+
+### Added
+
+- Added `vector_retriever.py` for local n-gram chunk retrieval.
+  - Uses character 2-4 grams, word tokens, and cosine similarity.
+  - Requires no embedding API, no network call, and no new dependency.
+- Added profile-pipeline retrieval controls:
+  - `--page-scope relevant|all`
+  - `--retrieval-mode none|vector|hybrid`
+  - `--top-k`
+  - `--run-dir`
+- Added numbered run artifacts under `--run-dir`:
+  - `01_page_profile_summary.json`
+  - `02_clean.md`
+  - `03_chunks.json`
+  - `04_cursor_chunks.json`
+  - `04_cursor_decisions.json`
+  - `05_retrieved_chunks.json`
+  - `05_retrieval_decisions.json`
+  - `06_dry_run_summary.json` or `06_structured.json`
+  - `07_report.md`
+- Added `_user_requirements` enrichment for applicant-specific summaries, action items, and manual-confirmation points.
+- Added tests for user requirement enrichment, n-gram retrieval, and hybrid profile-pipeline selection.
+
+### Improved
+
+- The recommended extraction framework is now cursor + vector hybrid selection:
+  - cursor selection keeps profile-specific deterministic recall;
+  - local vector retrieval supplements chunks missed by keyword/cursor rules;
+  - category quotas reduce over-selection before LLM calls.
+- `profile_pipeline.py` can now run from all PDF pages instead of depending only on keyword-based relevant pages.
+- `reporter.py` renders user requirement summaries into the final Markdown report.
+
+### Fixed
+
+- Fixed an `EnglishRequirement.condition_logic` merge bug where combining different chunks could produce invalid values such as `UNKNOWN / AND`.
+
+### Observed Effect
+
+- Pure local n-gram retrieval dry-run on `2027_4_2026_9_master.pdf`:
+  - source chunks: `291`
+  - cursor chunks: `102`
+  - selected vector chunks: `30`
+- Pure vector API run completed in about `407.4` seconds, but report quality regressed because `top-k=30` over-compressed the context and introduced some unrelated chunks.
+- Hybrid dry-run on the same sample:
+  - source chunks: `291`
+  - cursor chunks: `102`
+  - selected hybrid chunks: `52`
+  - category counts:
+    - documents: `9`
+    - english: `8`
+    - exams: `12`
+    - fees: `6`
+    - general: `10`
+    - methods: `4`
+    - periods: `3`
+
+### Notes
+
+- The keyword-based `*_relevant_pages.json` layer is now treated as a diagnostic and optional prefilter, not the only retrieval strategy.
+- The next optimization target is to tune hybrid category quotas and exclusion rules so unrelated schools/programs are filtered more aggressively.
+- Validation after this update: `26 passed`.
+
 ## 0.7.0 - Profile cursor input and selection
 
 ### Added

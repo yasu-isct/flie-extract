@@ -75,6 +75,21 @@ def test_merge_english_variants():
     assert info.english_requirements[0].institution_code == "G179"
 
 
+def test_merge_english_condition_logic_keeps_valid_literal():
+    info = merge_admission_infos(
+        [
+            AdmissionInfo(english_requirements=[EnglishRequirement(test_type="TOEFL iBT")]),
+            AdmissionInfo(
+                english_requirements=[
+                    EnglishRequirement(test_type="TOEFL iBT Home Edition", condition_logic="AND")
+                ]
+            ),
+        ]
+    )
+    assert len(info.english_requirements) == 1
+    assert info.english_requirements[0].condition_logic == "AND"
+
+
 def test_warning_to_structured():
     warning = warning_to_structured("未找到考试日程信息")
     assert warning.field == "exam_schedules"

@@ -339,6 +339,34 @@ def build_report(data: dict[str, Any], profile: ApplicantProfile | None = None) 
         "",
     ]
     lines += _profile_lines(profile)
+    requirements = data.get("_user_requirements", {})
+    if requirements:
+        summary = requirements.get("summary", {})
+        lines += [
+            "## 用户需求摘要",
+            "",
+            f"- 关键时间数量: {summary.get('deadline_count', 0)}",
+            f"- 通用材料数量: {summary.get('required_document_count', 0)}",
+            f"- 条件材料数量: {summary.get('conditional_document_count', 0)}",
+            f"- 英语要求数量: {summary.get('english_requirement_count', 0)}",
+            f"- 费用信息数量: {summary.get('fee_count', 0)}",
+            f"- 考试日程数量: {summary.get('exam_schedule_count', 0)}",
+            "",
+            "### 下一步行动",
+            "",
+        ]
+        action_items = requirements.get("action_items", [])
+        if action_items:
+            for item in action_items[:12]:
+                due = f"（{_clean(item.get('due_date'))}）" if item.get("due_date") else ""
+                lines.append(f"- {_clean(item.get('title'))}{due}: {_shorten(item.get('message'), 140)}")
+        else:
+            lines.append("- 暂无可生成的行动项。")
+        missing = requirements.get("missing_confirmations", [])
+        if missing:
+            lines += ["", "### 需要人工确认", ""]
+            lines += [f"- {_clean(item)}" for item in missing]
+        lines.append("")
 
     periods = _profile_filter(data.get("application_periods", []), profile)
     periods = _dedupe(periods, ("period_type", "start_date", "end_date", "deadline_rule"))

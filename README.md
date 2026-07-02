@@ -7,6 +7,19 @@ Instead of sending an entire PDF to an LLM, it first builds a user/profile-speci
 
 It is designed as a reusable extraction framework for administrative PDFs, policy documents, application manuals, and other long documents where small or local LLMs struggle with cost, context length, and noisy extraction.
 
+Current recommended mode:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --top-k 30 `
+  --run-dir outputs\runs\2027_master_hybrid_run
+```
+
+The hybrid mode combines deterministic profile/cursor selection with local n-gram retrieval. It is designed to reduce keyword-only recall risk while keeping LLM input smaller than a full-document extraction.
+
 ## 日本語
 
 本プロジェクトは、**複雑な長文書に対するプロファイル誘導型カーソル抽出**を扱う情報抽出システムです。  

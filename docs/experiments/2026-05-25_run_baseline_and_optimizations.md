@@ -379,3 +379,130 @@ Interpretation:
 - The new cursor layer reduced selected chunks by about 20.3% compared with the previous profile filter (`64 -> 51`).
 - Compared with the original relevant-page chunk set, selected chunks decreased by about 58.5% (`123 -> 51`).
 - This is an input-side token compression result only; the next step is to run the LLM and compare field accuracy, omission rate, runtime, and warnings.
+
+## 2026-07-02 Local Vector Retrieval and Hybrid Selection
+
+Goal:
+
+- Reduce the risk of keyword-only relevant-page selection.
+- Test whether local vector-like retrieval can reduce LLM input cost before API extraction.
+- Keep the project usable without a cloud embedding API.
+
+Implementation:
+
+- Added `src/admission_parser/vector_retriever.py`.
+- The first retrieval backend is local n-gram cosine similarity:
+  - character 2-4 grams;
+  - word tokens;
+  - profile-derived query terms;
+  - no network call;
+  - no external embedding dependency.
+- Added `--page-scope all` so the pipeline can chunk the whole PDF instead of relying only on keyword-selected relevant pages.
+- Added `--retrieval-mode none|vector|hybrid`.
+- Added `--run-dir` and numbered output artifacts so each run is easier to inspect.
+
+Pure n-gram dry-run command:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run `
+  --page-scope all `
+  --retrieval-mode vector `
+  --top-k 30 `
+  --run-dir outputs\runs\2027_master_ngram_dry_run
+```
+
+Pure n-gram dry-run result:
+
+| Metric | Count |
+| --- | ---: |
+| source_chunks | 291 |
+| cursor_chunks | 102 |
+| selected_vector_chunks | 30 |
+
+API run command after explicit user approval to send extracted PDF text to the configured external LLM API:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --page-scope all `
+  --retrieval-mode vector `
+  --top-k 30 `
+  --run-dir outputs\runs\2027_master_ngram_api_run_retry
+```
+
+API run result:
+
+| Metric | Value |
+| --- | ---: |
+| source_chunks | 291 |
+| selected_chunks | 30 |
+| runtime | 407.4 seconds |
+| structured_json | outputs/runs/2027_master_ngram_api_run_retry/06_structured.json |
+| report | outputs/runs/2027_master_ngram_api_run_retry/07_report.md |
+
+Observation:
+
+- Runtime was still long.
+- Report quality was worse than the previous cursor-based optimized version.
+- The pure vector top-k setting over-compressed the document and lost some high-value context.
+- n-gram retrieval also introduced unrelated chunks because it is lexical rather than semantic.
+
+Decision:
+
+- Use vector retrieval as a supplement, not as a replacement for deterministic cursor selection.
+- The current recommended framework is cursor + local vector hybrid selection:
+  - cursor keeps profile-specific deterministic recall;
+  - local retrieval adds possible missed chunks from the full document;
+  - category quotas keep the LLM input bounded.
+
+Hybrid dry-run command:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --top-k 30 `
+  --run-dir outputs\runs\2027_master_hybrid_dry_run
+```
+
+Hybrid dry-run result:
+
+| Metric | Count |
+| --- | ---: |
+| source_chunks | 291 |
+| cursor_chunks | 102 |
+| selected_hybrid_chunks | 52 |
+
+Hybrid category counts:
+
+| Category | Count |
+| --- | ---: |
+| documents | 9 |
+| english | 8 |
+| exams | 12 |
+| fees | 6 |
+| general | 10 |
+| methods | 4 |
+| periods | 3 |
+
+Bug fix:
+
+- Fixed `EnglishRequirement.condition_logic` merging.
+- Previous behavior could merge chunk-level values into invalid strings such as `UNKNOWN / AND`.
+- New behavior preserves the allowed enum values: `AND`, `OR`, or `UNKNOWN`.
+
+Validation:
+
+```text
+26 passed
+```
+
+Current known issues:
+
+- Hybrid selection still keeps some unrelated school/program chunks.
+- The next task is to tune category quotas, negative filters, and other-school exclusion rules.
+- After that, run one hybrid API extraction and compare it with the previous optimized report.
