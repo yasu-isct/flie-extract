@@ -42,6 +42,18 @@ Extraction focus: {focus}
 {text}
 """.strip()
 
+GROUP_USER_TEMPLATE = """
+PDF: {pdf_name}
+Pages: {pages}
+Section title: {title}
+Extraction focus: {focus}
+
+The following text contains multiple selected chunks from the same information category.
+Deduplicate repeated facts across chunks. Extract only information that is explicitly stated.
+
+{text}
+""".strip()
+
 COMPLEX_KEYWORDS = (
     "提出書類",
     "出願資格",
@@ -178,6 +190,106 @@ def parse_chunk_by_category(
     response_model = CATEGORY_RESPONSE_MODELS.get(category, AdmissionInfo)
     result = _create_response(chunk, response_model, model=model, focus=focus)
     return _focused_to_admission_info(result)
+
+
+def combine_chunks_for_category(
+    chunks: Iterable[TextChunk],
+    category: str,
+    max_chars: int = 18000,
+) -> list[TextChunk]:
+    batches: list[TextChunk] = []
+    current_parts: list[str] = []
+    current_pages: set[int] = set()
+    pdf_name = ""
+
+    def flush() -> None:
+        if not current_parts:
+            return
+        batches.append(
+            TextChunk(
+                pdf_name=pdf_name,
+                page_numbers=sorted(current_pages),
+                title=f"category:{category}",
+                text="\n\n".join(current_parts).strip(),
+            )
+        )
+
+    for index, chunk in enumerate(chunks, start=1):
+        pdf_name = pdf_name or chunk.pdf_name
+        part = (
+            f"### Chunk {index}\n"
+            f"Pages: {chunk.page_numbers}\n"
+            f"Title: {chunk.title}\n\n"
+            f"{chunk.text.strip()}"
+        )
+        projected_size = sum(len(item) + 2 for item in current_parts) + len(part)
+        if current_parts and projected_size > max_chars:
+            flush()
+            current_parts = []
+            current_pages = set()
+        current_parts.append(part)
+        current_pages.update(chunk.page_numbers)
+    flush()
+    return batches
+
+
+def _create_group_response(
+    chunk: TextChunk,
+    response_model: Type[BaseModel],
+    model: str | None = None,
+    focus: str = "",
+) -> BaseModel:
+    selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
+    client = _client()
+    kwargs = {
+        "model": selected_model,
+        "response_model": response_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": GROUP_USER_TEMPLATE.format(
+                    pdf_name=chunk.pdf_name,
+                    pages=chunk.page_numbers,
+                    title=chunk.title,
+                    focus=focus or "Extract clearly stated admission information only.",
+                    text=chunk.text,
+                ),
+            },
+        ],
+        "max_retries": 2,
+    }
+    if use_pro_options:
+        if os.getenv("OPENAI_PRO_REASONING_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            kwargs["reasoning_effort"] = os.getenv("OPENAI_PRO_REASONING_EFFORT", "high")
+        if os.getenv("OPENAI_PRO_THINKING_ENABLED", "false").lower() in {"1", "true", "yes"}:
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+            kwargs["max_retries"] = 1
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        error_text = repr(exc) + "\n" + str(exc)
+        if use_pro_options and "Thinking mode" in error_text and "tool_choice" in error_text:
+            kwargs.pop("extra_body", None)
+            kwargs.pop("reasoning_effort", None)
+            kwargs["max_retries"] = 2
+            return client.chat.completions.create(**kwargs)
+        raise
+
+
+def parse_category_batch(
+    chunks: Iterable[TextChunk],
+    category: str,
+    model: str | None = None,
+    focus: str = "",
+    max_chars: int = 18000,
+) -> list[AdmissionInfo]:
+    response_model = CATEGORY_RESPONSE_MODELS.get(category, AdmissionInfo)
+    partials: list[AdmissionInfo] = []
+    for batch in combine_chunks_for_category(chunks, category=category, max_chars=max_chars):
+        result = _create_group_response(batch, response_model, model=model, focus=focus)
+        partials.append(_focused_to_admission_info(result))
+    return partials
 
 
 def parse_chunks(chunks: Iterable[TextChunk], model: str | None = None) -> list[AdmissionInfo]:

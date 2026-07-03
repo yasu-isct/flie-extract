@@ -20,6 +20,20 @@ Current recommended mode:
 
 The hybrid mode combines deterministic profile/cursor selection with local n-gram retrieval. It is designed to reduce keyword-only recall risk while keeping LLM input smaller than a full-document extraction.
 
+For faster API runs, the profile pipeline now defaults to category-batched LLM extraction. It groups selected chunks by information type, sends one bounded batch per category where possible, and runs categories in parallel:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --llm-strategy category `
+  --max-workers 4 `
+  --run-dir outputs\runs\2027_master_category_api_run
+```
+
+Use `--llm-strategy chunk` to fall back to the older per-chunk request mode.
+
 ## 日本語
 
 本プロジェクトは、**複雑な長文書に対するプロファイル誘導型カーソル抽出**を扱う情報抽出システムです。  

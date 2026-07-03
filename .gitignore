@@ -24,6 +24,7 @@ env/
 *.pdf
 data/
 downloads/
+models/
 *.db
 *.sqlite
 *.sqlite3

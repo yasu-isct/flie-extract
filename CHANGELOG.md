@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.8.1 - Category-batched parallel LLM extraction
+
+### Added
+
+- Added category-batched LLM extraction.
+  - Selected chunks are grouped by category before LLM calls.
+  - Each category is merged into bounded-size batches.
+  - Category batches can run concurrently with `ThreadPoolExecutor`.
+- Added profile-pipeline controls:
+  - `--llm-strategy category|chunk`
+  - `--max-workers`
+  - `--max-batch-chars`
+- Added `06_llm_batches.json` in `--run-dir` for non-dry API runs.
+- Added batch-combination tests.
+
+### Improved
+
+- Default profile-pipeline LLM strategy is now `category`.
+- The old per-chunk request mode remains available with `--llm-strategy chunk`.
+- Dry-run output now estimates LLM request count before spending API tokens.
+
+### Observed Effect
+
+- On the current hybrid dry-run for `2027_4_2026_9_master.pdf`:
+  - selected chunks: `52`
+  - estimated per-chunk requests: `52`
+  - estimated category-batched requests: `8`
+  - default parallel workers: `4`
+
+### Notes
+
+- This mainly reduces wall-clock waiting time and repeated prompt/schema overhead.
+- Total token usage may not drop by the same ratio because the selected document text still has to be read.
+- Production systems usually run heavy parsing, indexing, embedding, and structured extraction offline; online user queries should retrieve cached chunks/fields and do only a small amount of generation.
+
 ## 0.8.0 - Hybrid cursor and local vector retrieval
 
 ### Added

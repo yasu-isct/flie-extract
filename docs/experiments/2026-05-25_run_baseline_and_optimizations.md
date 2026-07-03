@@ -506,3 +506,70 @@ Current known issues:
 - Hybrid selection still keeps some unrelated school/program chunks.
 - The next task is to tune category quotas, negative filters, and other-school exclusion rules.
 - After that, run one hybrid API extraction and compare it with the previous optimized report.
+
+## 2026-07-02 Category-Batched Parallel LLM Calls
+
+Problem:
+
+- The previous profile pipeline still called the LLM once per selected chunk.
+- With hybrid selection, this meant about `52` API requests for the current sample.
+- Even when the selected chunk count is much smaller than the full document, serial API calls create long wall-clock latency.
+
+Implementation:
+
+- Added category-batched extraction to `src/admission_parser/llm_parser.py`.
+- Added `combine_chunks_for_category()` to merge chunks from the same category into bounded-size prompt batches.
+- Added parallel category execution in `src/admission_parser/profile_pipeline.py`.
+- Added new CLI controls:
+  - `--llm-strategy category|chunk`
+  - `--max-workers`
+  - `--max-batch-chars`
+- The old per-chunk mode is still available with `--llm-strategy chunk`.
+
+Dry-run command:
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --top-k 30 `
+  --run-dir outputs\runs\2027_master_category_parallel_dry_run
+```
+
+Dry-run result:
+
+| Metric | Count |
+| --- | ---: |
+| source_chunks | 291 |
+| cursor_chunks | 102 |
+| selected_chunks | 52 |
+| estimated per-chunk LLM requests | 52 |
+| estimated category-batched LLM requests | 8 |
+| default parallel workers | 4 |
+
+Interpretation:
+
+- The main expected gain is shorter wall-clock time.
+- Token usage will not fall by the same ratio because the selected text still needs to be read by the model.
+- However, repeated system/schema/prompt overhead should decrease because fewer requests are made.
+
+Enterprise product note:
+
+- Mature products usually do not parse a long PDF from scratch during a foreground user query.
+- Heavy work is moved offline:
+  - document ingestion;
+  - OCR/layout parsing;
+  - chunking;
+  - embedding/indexing;
+  - structured extraction;
+  - summary/cache generation.
+- Online queries usually retrieve cached chunks or structured fields, then run a small generation step.
+- A run longer than one minute is acceptable for a background ingestion job, but not for a normal interactive query.
+
+Validation:
+
+```text
+28 passed
+```

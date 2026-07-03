@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .cursor_selector import build_cursor, select_chunks_by_cursor, write_cursor_outputs
 from .extractor import extract_pdf
-from .llm_parser import parse_chunk_by_category
+from .llm_parser import combine_chunks_for_category, parse_category_batch, parse_chunk_by_category
 from .merger import merge_admission_infos, warning_to_structured
 from .profile_input import ApplicantProfileV2, add_profile_arguments, profile_from_args
 from .profiler import profile_pdf
@@ -90,6 +92,50 @@ def _merge_and_balance_chunks(base_chunks, supplement_chunks):
     return selected
 
 
+def _group_chunks_by_category(chunks):
+    grouped = {}
+    for chunk in chunks:
+        grouped.setdefault(categorize_chunk(chunk), []).append(chunk)
+    return grouped
+
+
+def _llm_batch_manifest(grouped_chunks, max_batch_chars: int) -> list[dict]:
+    manifest = []
+    for category, chunks in sorted(grouped_chunks.items()):
+        batches = combine_chunks_for_category(chunks, category=category, max_chars=max_batch_chars)
+        for index, batch in enumerate(batches, start=1):
+            manifest.append(
+                {
+                    "category": category,
+                    "batch_index": index,
+                    "pages": batch.page_numbers,
+                    "chars": len(batch.text),
+                    "source_chunks": len(chunks),
+                }
+            )
+    return manifest
+
+
+def _parse_chunks_by_category_batches(chunks, max_workers: int, max_batch_chars: int):
+    grouped = _group_chunks_by_category(chunks)
+    partials = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                parse_category_batch,
+                category_chunks,
+                category,
+                None,
+                focus_instruction(category),
+                max_batch_chars,
+            ): category
+            for category, category_chunks in grouped.items()
+        }
+        for future in as_completed(futures):
+            partials.extend(future.result())
+    return partials
+
+
 def parse_pdf_for_profile(
     pdf_path: str | Path,
     output: str | Path,
@@ -102,6 +148,13 @@ def parse_pdf_for_profile(
     retrieval_mode: str = "hybrid",
     top_k: int = 30,
     run_dir: str | Path | None = None,
+    llm_strategy: str = "category",
+    max_workers: int | None = None,
+    max_batch_chars: int = 18000,
+    retrieval_backend: str = "ngram",
+    embedding_model_path: str | Path | None = None,
+    embedding_cache_dir: str | Path | None = None,
+    retrieval_source: str = "all",
 ) -> dict:
     pdf_path = Path(pdf_path)
     if run_dir:
@@ -147,8 +200,15 @@ def parse_pdf_for_profile(
     retrieval_decisions: list[dict] = []
     if retrieval_mode in {"vector", "hybrid"}:
         retrieval_queries = build_profile_queries(profile)
-        retrieval_source = chunks if retrieval_mode == "hybrid" else cursor_chunks
-        retrieved_chunks, retrieval_decisions = retrieve_chunks(retrieval_source, retrieval_queries, top_k=top_k)
+        source_chunks = chunks if retrieval_source == "all" and retrieval_mode == "hybrid" else cursor_chunks
+        retrieved_chunks, retrieval_decisions = retrieve_chunks(
+            source_chunks,
+            retrieval_queries,
+            top_k=top_k,
+            backend=retrieval_backend,
+            embedding_model_path=embedding_model_path,
+            embedding_cache_dir=embedding_cache_dir,
+        )
         if retrieval_mode == "hybrid":
             filtered_chunks = _merge_and_balance_chunks(cursor_chunks, retrieved_chunks)
         else:
@@ -164,6 +224,8 @@ def parse_pdf_for_profile(
         filtered_chunks = cursor_chunks
 
     if dry_run:
+        grouped_chunks = _group_chunks_by_category(filtered_chunks)
+        llm_batches = _llm_batch_manifest(grouped_chunks, max_batch_chars)
         payload = {
             "_profile": {
                 **profile.model_dump(),
@@ -173,30 +235,54 @@ def parse_pdf_for_profile(
                 "category_counts": category_counts(filtered_chunks),
                 "page_scope": page_scope,
                 "retrieval_mode": retrieval_mode,
+                "retrieval_backend": retrieval_backend,
+                "retrieval_source": retrieval_source,
+                "embedding_model_path": str(embedding_model_path or os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "")),
+                "embedding_cache_dir": str(embedding_cache_dir or ""),
                 "retrieval_queries": len(retrieval_queries),
+                "llm_strategy": llm_strategy,
+                "estimated_llm_requests": len(filtered_chunks) if llm_strategy == "chunk" else len(llm_batches),
+                "max_workers": max_workers or int(os.getenv("LLM_MAX_WORKERS", "4")),
+                "max_batch_chars": max_batch_chars,
             },
             "_cursor": cursor.model_dump(),
             "_retrieval": {
                 "queries": retrieval_queries,
                 "decisions": retrieval_decisions,
             },
+            "_llm_batches": llm_batches,
             "selected_chunk_titles": [chunk.title for chunk in filtered_chunks[:50]],
         }
         if run_dir:
             output = Path(run_dir) / "06_dry_run_summary.json"
+            payload["_artifacts"] = {
+                "dry_run_summary": str(output),
+                "clean_markdown": str(Path(run_dir) / "02_clean.md"),
+                "chunks": str(Path(run_dir) / "03_chunks.json"),
+                "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
+                "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
+            }
         write_json(output, payload)
         return payload
 
-    partials = []
-    for chunk in filtered_chunks:
-        category = categorize_chunk(chunk)
-        partials.append(
-            parse_chunk_by_category(
-                chunk,
-                category=category,
-                focus=focus_instruction(category),
+    max_workers = max_workers or int(os.getenv("LLM_MAX_WORKERS", "4"))
+    grouped_chunks = _group_chunks_by_category(filtered_chunks)
+    llm_batches = _llm_batch_manifest(grouped_chunks, max_batch_chars)
+    if run_dir:
+        write_json(Path(run_dir) / "06_llm_batches.json", llm_batches)
+    if llm_strategy == "category":
+        partials = _parse_chunks_by_category_batches(filtered_chunks, max_workers, max_batch_chars)
+    else:
+        partials = []
+        for chunk in filtered_chunks:
+            category = categorize_chunk(chunk)
+            partials.append(
+                parse_chunk_by_category(
+                    chunk,
+                    category=category,
+                    focus=focus_instruction(category),
+                )
             )
-        )
     merged = merge_admission_infos(partials)
     errors = validate_admission_info(merged)
     if errors:
@@ -212,7 +298,15 @@ def parse_pdf_for_profile(
         "category_counts": category_counts(filtered_chunks),
         "page_scope": page_scope,
         "retrieval_mode": retrieval_mode,
+        "retrieval_backend": retrieval_backend,
+        "retrieval_source": retrieval_source,
+        "embedding_model_path": str(embedding_model_path or os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "")),
+        "embedding_cache_dir": str(embedding_cache_dir or ""),
         "retrieval_queries": len(retrieval_queries),
+        "llm_strategy": llm_strategy,
+        "llm_requests": len(filtered_chunks) if llm_strategy == "chunk" else len(llm_batches),
+        "max_workers": max_workers,
+        "max_batch_chars": max_batch_chars,
     }
     payload["_cursor"] = cursor.model_dump()
     payload["_retrieval"] = {
@@ -221,8 +315,17 @@ def parse_pdf_for_profile(
     }
     payload["_user_requirements"] = build_user_requirements(payload, profile)
     if run_dir:
-        output = Path(run_dir) / "06_structured.json"
-        report_output = Path(run_dir) / "07_report.md"
+        output = Path(run_dir) / "07_structured.json"
+        report_output = Path(run_dir) / "08_report.md"
+        payload["_artifacts"] = {
+            "llm_batches": str(Path(run_dir) / "06_llm_batches.json"),
+            "structured_json": str(output),
+            "report": str(report_output),
+            "clean_markdown": str(Path(run_dir) / "02_clean.md"),
+            "chunks": str(Path(run_dir) / "03_chunks.json"),
+            "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
+            "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
+        }
     write_json(output, payload)
 
     if report_output:
@@ -240,8 +343,15 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Only filter chunks; do not call the LLM.")
     parser.add_argument("--page-scope", choices=["all", "relevant"], default="all")
     parser.add_argument("--retrieval-mode", choices=["none", "vector", "hybrid"], default="hybrid")
+    parser.add_argument("--retrieval-backend", choices=["ngram", "local-embedding"], default="ngram")
+    parser.add_argument("--retrieval-source", choices=["all", "cursor"], default="all")
+    parser.add_argument("--embedding-model-path", default=None)
+    parser.add_argument("--embedding-cache-dir", default=str(Path("outputs") / "embedding_cache"))
     parser.add_argument("--top-k", type=int, default=30)
     parser.add_argument("--run-dir", default=None, help="Write ordered run artifacts into one directory.")
+    parser.add_argument("--llm-strategy", choices=["category", "chunk"], default="category")
+    parser.add_argument("--max-workers", type=int, default=None)
+    parser.add_argument("--max-batch-chars", type=int, default=18000)
     add_profile_arguments(parser)
     args = parser.parse_args()
 
@@ -267,14 +377,24 @@ def main() -> None:
         retrieval_mode=args.retrieval_mode,
         top_k=args.top_k,
         run_dir=args.run_dir,
+        llm_strategy=args.llm_strategy,
+        max_workers=args.max_workers,
+        max_batch_chars=args.max_batch_chars,
+        retrieval_backend=args.retrieval_backend,
+        embedding_model_path=args.embedding_model_path,
+        embedding_cache_dir=args.embedding_cache_dir,
+        retrieval_source=args.retrieval_source,
     )
     print(
         json.dumps(
             {
                 "output": output,
                 "report_output": report_output,
+                "artifacts": payload.get("_artifacts", {}),
                 "source_chunks": payload.get("_profile", {}).get("source_chunks"),
                 "selected_chunks": payload.get("_profile", {}).get("selected_chunks"),
+                "llm_requests": payload.get("_profile", {}).get("llm_requests")
+                or payload.get("_profile", {}).get("estimated_llm_requests"),
                 "warnings": len(payload.get("warnings", [])),
             },
             ensure_ascii=True,

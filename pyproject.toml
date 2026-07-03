@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2.0", "ruff>=0.5.0"]
+embedding = ["sentence-transformers>=3.0.0"]
 stage2 = ["playwright>=1.45.0"]
 stage3 = ["streamlit>=1.36.0", "plotly>=5.22.0"]
 
