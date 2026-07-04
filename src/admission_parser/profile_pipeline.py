@@ -5,7 +5,9 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 
+from .applicability import evaluate_applicability, generate_narrative_report
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .cursor_selector import build_cursor, select_chunks_by_cursor, write_cursor_outputs
@@ -119,24 +121,45 @@ def _llm_batch_manifest(grouped_chunks, max_batch_chars: int) -> list[dict]:
     return manifest
 
 
-def _parse_chunks_by_category_batches(chunks, max_workers: int, max_batch_chars: int):
+def _parse_chunks_by_category_batches(
+    chunks,
+    max_workers: int,
+    max_batch_chars: int,
+    llm_cache_dir: str | Path | None = None,
+) -> tuple[list, dict[str, int]]:
     grouped = _group_chunks_by_category(chunks)
     partials = []
+    cache_stats = {"hits": 0, "misses": 0}
+    cache_lock = Lock()
+
+    def parse_with_cache_stats(category_chunks, category):
+        local_stats = {"hits": 0, "misses": 0}
+        result = parse_category_batch(
+            category_chunks,
+            category,
+            None,
+            focus_instruction(category),
+            max_batch_chars,
+            cache_dir=llm_cache_dir,
+            cache_stats=local_stats,
+        )
+        with cache_lock:
+            cache_stats["hits"] += local_stats.get("hits", 0)
+            cache_stats["misses"] += local_stats.get("misses", 0)
+        return result
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                parse_category_batch,
+                parse_with_cache_stats,
                 category_chunks,
                 category,
-                None,
-                focus_instruction(category),
-                max_batch_chars,
             ): category
             for category, category_chunks in grouped.items()
         }
         for future in as_completed(futures):
             partials.extend(future.result())
-    return partials
+    return partials, cache_stats
 
 
 def parse_pdf_for_profile(
@@ -160,6 +183,9 @@ def parse_pdf_for_profile(
     retrieval_source: str = "all",
     reference_expansion: str = "none",
     reference_max_depth: int = 1,
+    llm_cache_dir: str | Path | None = Path("outputs") / "llm_cache",
+    applicability_pass: bool = False,
+    llm_report: bool = False,
 ) -> dict:
     pdf_path = Path(pdf_path)
     if run_dir:
@@ -310,9 +336,15 @@ def parse_pdf_for_profile(
     if run_dir:
         write_json(Path(run_dir) / "06_llm_batches.json", llm_batches)
     if llm_strategy == "category":
-        partials = _parse_chunks_by_category_batches(filtered_chunks, max_workers, max_batch_chars)
+        partials, llm_cache_stats = _parse_chunks_by_category_batches(
+            filtered_chunks,
+            max_workers,
+            max_batch_chars,
+            llm_cache_dir=llm_cache_dir,
+        )
     else:
         partials = []
+        llm_cache_stats = {"hits": 0, "misses": 0}
         for chunk in filtered_chunks:
             category = categorize_chunk(chunk)
             partials.append(
@@ -348,6 +380,9 @@ def parse_pdf_for_profile(
         "retrieval_queries": len(retrieval_queries),
         "llm_strategy": llm_strategy,
         "llm_requests": len(filtered_chunks) if llm_strategy == "chunk" else len(llm_batches),
+        "llm_cache_dir": str(llm_cache_dir or ""),
+        "llm_cache_hits": llm_cache_stats.get("hits", 0),
+        "llm_cache_misses": llm_cache_stats.get("misses", 0),
         "max_workers": max_workers,
         "max_batch_chars": max_batch_chars,
     }
@@ -357,13 +392,33 @@ def parse_pdf_for_profile(
         "decisions": retrieval_decisions,
     }
     payload["_user_requirements"] = build_user_requirements(payload, profile)
+    applicability_result = None
+    narrative_report = None
+    if applicability_pass:
+        applicability_result = evaluate_applicability(
+            payload,
+            profile,
+            cache_dir=llm_cache_dir,
+        )
+        payload["_applicability"] = applicability_result.model_dump(mode="json")
+    if llm_report:
+        narrative_report = generate_narrative_report(
+            payload,
+            profile,
+            applicability=applicability_result or payload.get("_applicability"),
+            cache_dir=llm_cache_dir,
+        )
     if run_dir:
         output = Path(run_dir) / "07_structured.json"
         report_output = Path(run_dir) / "08_report.md"
+        applicability_output = Path(run_dir) / "09_applicability.json"
+        llm_report_output = Path(run_dir) / "10_llm_report.md"
         payload["_artifacts"] = {
             "llm_batches": str(Path(run_dir) / "06_llm_batches.json"),
             "structured_json": str(output),
             "report": str(report_output),
+            "applicability": str(applicability_output) if applicability_pass else "",
+            "llm_report": str(llm_report_output) if llm_report else "",
             "clean_markdown": str(Path(run_dir) / "02_clean.md"),
             "chunks": str(Path(run_dir) / "03_chunks.json"),
             "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
@@ -376,6 +431,10 @@ def parse_pdf_for_profile(
 
     if report_output:
         Path(report_output).write_text(build_report(payload, profile.to_report_profile()), encoding="utf-8")
+    if run_dir and applicability_pass and applicability_result:
+        write_json(Path(run_dir) / "09_applicability.json", applicability_result.model_dump(mode="json"))
+    if run_dir and llm_report and narrative_report:
+        Path(run_dir, "10_llm_report.md").write_text(narrative_report.report_markdown, encoding="utf-8")
     return payload
 
 
@@ -398,6 +457,10 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=30)
     parser.add_argument("--run-dir", default=None, help="Write ordered run artifacts into one directory.")
     parser.add_argument("--llm-strategy", choices=["category", "chunk"], default="category")
+    parser.add_argument("--llm-cache-dir", default=str(Path("outputs") / "llm_cache"))
+    parser.add_argument("--no-llm-cache", action="store_true")
+    parser.add_argument("--applicability-pass", action="store_true")
+    parser.add_argument("--llm-report", action="store_true")
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--max-batch-chars", type=int, default=18000)
     add_profile_arguments(parser)
@@ -434,6 +497,9 @@ def main() -> None:
         retrieval_source=args.retrieval_source,
         reference_expansion=args.reference_expansion,
         reference_max_depth=args.reference_max_depth,
+        llm_cache_dir=None if args.no_llm_cache else args.llm_cache_dir,
+        applicability_pass=args.applicability_pass,
+        llm_report=args.llm_report,
     )
     print(
         json.dumps(
@@ -445,6 +511,8 @@ def main() -> None:
                 "selected_chunks": payload.get("_profile", {}).get("selected_chunks"),
                 "llm_requests": payload.get("_profile", {}).get("llm_requests")
                 or payload.get("_profile", {}).get("estimated_llm_requests"),
+                "llm_cache_hits": payload.get("_profile", {}).get("llm_cache_hits"),
+                "llm_cache_misses": payload.get("_profile", {}).get("llm_cache_misses"),
                 "warnings": len(payload.get("warnings", [])),
             },
             ensure_ascii=True,

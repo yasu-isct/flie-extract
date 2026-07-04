@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from dataclasses import asdict
+from pathlib import Path
 from typing import Iterable, Type
 
 from dotenv import load_dotenv
@@ -53,6 +56,8 @@ Deduplicate repeated facts across chunks. Extract only information that is expli
 
 {text}
 """.strip()
+
+EXTRACTION_PROMPT_VERSION = "extraction_v1"
 
 COMPLEX_KEYWORDS = (
     "提出書類",
@@ -115,13 +120,92 @@ def _model_for_chunk(chunk: TextChunk, model: str | None = None) -> tuple[str, b
     return default_model, False
 
 
+def _schema_hash(response_model: Type[BaseModel]) -> str:
+    payload = json.dumps(response_model.model_json_schema(), ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_key(
+    chunk: TextChunk,
+    response_model: Type[BaseModel],
+    selected_model: str,
+    focus: str,
+    prompt_template: str,
+) -> str:
+    payload = {
+        "prompt_version": EXTRACTION_PROMPT_VERSION,
+        "system_prompt": SYSTEM_PROMPT,
+        "prompt_template": prompt_template,
+        "model": selected_model,
+        "response_model": response_model.__name__,
+        "schema_hash": _schema_hash(response_model),
+        "focus": focus or "Extract clearly stated admission information only.",
+        "chunk": asdict(chunk),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _cache_path(cache_dir: str | Path | None, key: str) -> Path | None:
+    if not cache_dir:
+        return None
+    return Path(cache_dir) / f"{key}.json"
+
+
+def _load_cached_response(
+    cache_dir: str | Path | None,
+    key: str,
+    response_model: Type[BaseModel],
+) -> BaseModel | None:
+    path = _cache_path(cache_dir, key)
+    if not path or not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return response_model.model_validate(payload["result"])
+
+
+def _write_cached_response(
+    cache_dir: str | Path | None,
+    key: str,
+    result: BaseModel,
+    response_model: Type[BaseModel],
+    selected_model: str,
+    focus: str,
+) -> None:
+    path = _cache_path(cache_dir, key)
+    if not path:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "manifest": {
+            "prompt_version": EXTRACTION_PROMPT_VERSION,
+            "model": selected_model,
+            "response_model": response_model.__name__,
+            "schema_hash": _schema_hash(response_model),
+            "focus": focus or "Extract clearly stated admission information only.",
+        },
+        "result": result.model_dump(mode="json"),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _create_response(
     chunk: TextChunk,
     response_model: Type[BaseModel],
     model: str | None = None,
     focus: str = "",
+    cache_dir: str | Path | None = None,
+    cache_stats: dict[str, int] | None = None,
 ) -> BaseModel:
     selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
+    key = _cache_key(chunk, response_model, selected_model, focus, USER_TEMPLATE)
+    cached = _load_cached_response(cache_dir, key, response_model)
+    if cached is not None:
+        if cache_stats is not None:
+            cache_stats["hits"] = cache_stats.get("hits", 0) + 1
+        return cached
+    if cache_stats is not None and cache_dir:
+        cache_stats["misses"] = cache_stats.get("misses", 0) + 1
     client = _client()
     kwargs = {
         "model": selected_model,
@@ -148,15 +232,18 @@ def _create_response(
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
             kwargs["max_retries"] = 1
     try:
-        return client.chat.completions.create(**kwargs)
+        result = client.chat.completions.create(**kwargs)
     except Exception as exc:
         error_text = repr(exc) + "\n" + str(exc)
         if use_pro_options and "Thinking mode" in error_text and "tool_choice" in error_text:
             kwargs.pop("extra_body", None)
             kwargs.pop("reasoning_effort", None)
             kwargs["max_retries"] = 2
-            return client.chat.completions.create(**kwargs)
-        raise
+            result = client.chat.completions.create(**kwargs)
+        else:
+            raise
+    _write_cached_response(cache_dir, key, result, response_model, selected_model, focus)
+    return result
 
 
 def _focused_to_admission_info(result: BaseModel) -> AdmissionInfo:
@@ -238,8 +325,18 @@ def _create_group_response(
     response_model: Type[BaseModel],
     model: str | None = None,
     focus: str = "",
+    cache_dir: str | Path | None = None,
+    cache_stats: dict[str, int] | None = None,
 ) -> BaseModel:
     selected_model, use_pro_options = _model_for_chunk(chunk, model=model)
+    key = _cache_key(chunk, response_model, selected_model, focus, GROUP_USER_TEMPLATE)
+    cached = _load_cached_response(cache_dir, key, response_model)
+    if cached is not None:
+        if cache_stats is not None:
+            cache_stats["hits"] = cache_stats.get("hits", 0) + 1
+        return cached
+    if cache_stats is not None and cache_dir:
+        cache_stats["misses"] = cache_stats.get("misses", 0) + 1
     client = _client()
     kwargs = {
         "model": selected_model,
@@ -266,15 +363,18 @@ def _create_group_response(
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
             kwargs["max_retries"] = 1
     try:
-        return client.chat.completions.create(**kwargs)
+        result = client.chat.completions.create(**kwargs)
     except Exception as exc:
         error_text = repr(exc) + "\n" + str(exc)
         if use_pro_options and "Thinking mode" in error_text and "tool_choice" in error_text:
             kwargs.pop("extra_body", None)
             kwargs.pop("reasoning_effort", None)
             kwargs["max_retries"] = 2
-            return client.chat.completions.create(**kwargs)
-        raise
+            result = client.chat.completions.create(**kwargs)
+        else:
+            raise
+    _write_cached_response(cache_dir, key, result, response_model, selected_model, focus)
+    return result
 
 
 def parse_category_batch(
@@ -283,11 +383,20 @@ def parse_category_batch(
     model: str | None = None,
     focus: str = "",
     max_chars: int = 18000,
+    cache_dir: str | Path | None = None,
+    cache_stats: dict[str, int] | None = None,
 ) -> list[AdmissionInfo]:
     response_model = CATEGORY_RESPONSE_MODELS.get(category, AdmissionInfo)
     partials: list[AdmissionInfo] = []
     for batch in combine_chunks_for_category(chunks, category=category, max_chars=max_chars):
-        result = _create_group_response(batch, response_model, model=model, focus=focus)
+        result = _create_group_response(
+            batch,
+            response_model,
+            model=model,
+            focus=focus,
+            cache_dir=cache_dir,
+            cache_stats=cache_stats,
+        )
         partials.append(_focused_to_admission_info(result))
     return partials
 
