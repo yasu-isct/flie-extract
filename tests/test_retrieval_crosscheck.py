@@ -3,6 +3,7 @@ import json
 from admission_parser.chunker import TextChunk
 from admission_parser.retrieval_crosscheck import (
     compare_retrieval_backends,
+    write_crosscheck_html,
     write_crosscheck_json,
     write_crosscheck_markdown,
 )
@@ -45,9 +46,12 @@ def test_compare_retrieval_backends_splits_overlap_and_disagreements():
     assert payload["overlap"][0]["index"] == 0
     assert payload["only_ngram"][0]["index"] == 1
     assert payload["only_embedding"][0]["index"] == 2
+    assert payload["category_summary"]["general"]["overlap"] == 1
+    assert payload["query_summary"][0]["only_ngram"] == 1
+    assert payload["query_summary"][0]["only_embedding"] == 1
 
 
-def test_crosscheck_writers_create_json_and_markdown(tmp_path):
+def test_crosscheck_writers_create_json_markdown_and_html(tmp_path):
     chunks = [
         TextChunk("x.pdf", [1], "shared", "shared keyword semantic"),
         TextChunk("x.pdf", [2], "keyword", "keyword keyword keyword"),
@@ -62,11 +66,18 @@ def test_crosscheck_writers_create_json_and_markdown(tmp_path):
     )
     json_output = tmp_path / "crosscheck.json"
     markdown_output = tmp_path / "crosscheck.md"
+    html_output = tmp_path / "crosscheck.html"
 
     write_crosscheck_json(payload, json_output)
     write_crosscheck_markdown(payload, markdown_output)
+    write_crosscheck_html(payload, html_output)
 
     assert json.loads(json_output.read_text(encoding="utf-8"))["summary"]["overlap"] == 1
     markdown = markdown_output.read_text(encoding="utf-8")
     assert "# Retrieval Crosscheck" in markdown
+    assert "| category | source | ngram | embedding | overlap | only_ngram | only_embedding |" in markdown
     assert "## Only Embedding" in markdown
+    html = html_output.read_text(encoding="utf-8")
+    assert "<title>Retrieval Crosscheck</title>" in html
+    assert "Category Summary" in html
+    assert "Only Embedding" in html

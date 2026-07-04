@@ -9,11 +9,14 @@ from pathlib import Path
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .cursor_selector import build_cursor, select_chunks_by_cursor, write_cursor_outputs
+from .document_index import build_document_index, write_document_index
 from .extractor import extract_pdf
 from .llm_parser import combine_chunks_for_category, parse_category_batch, parse_chunk_by_category
 from .merger import merge_admission_infos, warning_to_structured
 from .profile_input import ApplicantProfileV2, add_profile_arguments, profile_from_args
 from .profiler import profile_pdf
+from .recursive_retriever import expand_chunks_by_references, write_reference_expansion
+from .reference_resolver import resolve_references, write_reference_links
 from .reporter import build_report
 from .user_requirements import build_user_requirements
 from .utils import (
@@ -155,6 +158,8 @@ def parse_pdf_for_profile(
     embedding_model_path: str | Path | None = None,
     embedding_cache_dir: str | Path | None = None,
     retrieval_source: str = "all",
+    reference_expansion: str = "none",
+    reference_max_depth: int = 1,
 ) -> dict:
     pdf_path = Path(pdf_path)
     if run_dir:
@@ -186,6 +191,11 @@ def parse_pdf_for_profile(
     if run_dir:
         (Path(run_dir) / "02_clean.md").write_text(markdown, encoding="utf-8")
         write_json(Path(run_dir) / "03_chunks.json", [chunk.__dict__ for chunk in chunks])
+    document_index = build_document_index(chunks)
+    reference_links = resolve_references(document_index)
+    if run_dir:
+        write_document_index(document_index, Path(run_dir) / "03_document_index.json")
+        write_reference_links(reference_links, Path(run_dir) / "03_reference_links.json")
     cursor = build_cursor(profile)
     cursor_chunks, decisions = select_chunks_by_cursor(chunks, cursor)
 
@@ -223,6 +233,28 @@ def parse_pdf_for_profile(
     else:
         filtered_chunks = cursor_chunks
 
+    reference_expansion_records = []
+    if reference_expansion != "none":
+        expansion_depth = reference_max_depth if reference_expansion == "recursive" else 1
+        base_selected_count = len(filtered_chunks)
+        filtered_chunks, reference_expansion_records = expand_chunks_by_references(
+            chunks,
+            filtered_chunks,
+            reference_links,
+            max_depth=expansion_depth,
+        )
+        if run_dir:
+            write_json(
+                Path(run_dir) / "05_reference_expanded_chunks.json",
+                [chunk.__dict__ for chunk in filtered_chunks],
+            )
+            write_reference_expansion(
+                reference_expansion_records,
+                Path(run_dir) / "05_reference_expansion.json",
+                base_selected_count=base_selected_count,
+                final_selected_count=len(filtered_chunks),
+            )
+
     if dry_run:
         grouped_chunks = _group_chunks_by_category(filtered_chunks)
         llm_batches = _llm_batch_manifest(grouped_chunks, max_batch_chars)
@@ -237,6 +269,10 @@ def parse_pdf_for_profile(
                 "retrieval_mode": retrieval_mode,
                 "retrieval_backend": retrieval_backend,
                 "retrieval_source": retrieval_source,
+                "reference_expansion": reference_expansion,
+                "reference_max_depth": reference_max_depth,
+                "reference_links": len(reference_links),
+                "reference_expanded_chunks": len(reference_expansion_records),
                 "embedding_model_path": str(embedding_model_path or os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "")),
                 "embedding_cache_dir": str(embedding_cache_dir or ""),
                 "retrieval_queries": len(retrieval_queries),
@@ -261,6 +297,9 @@ def parse_pdf_for_profile(
                 "chunks": str(Path(run_dir) / "03_chunks.json"),
                 "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
                 "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
+                "document_index": str(Path(run_dir) / "03_document_index.json"),
+                "reference_links": str(Path(run_dir) / "03_reference_links.json"),
+                "reference_expansion": str(Path(run_dir) / "05_reference_expansion.json"),
             }
         write_json(output, payload)
         return payload
@@ -300,6 +339,10 @@ def parse_pdf_for_profile(
         "retrieval_mode": retrieval_mode,
         "retrieval_backend": retrieval_backend,
         "retrieval_source": retrieval_source,
+        "reference_expansion": reference_expansion,
+        "reference_max_depth": reference_max_depth,
+        "reference_links": len(reference_links),
+        "reference_expanded_chunks": len(reference_expansion_records),
         "embedding_model_path": str(embedding_model_path or os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "")),
         "embedding_cache_dir": str(embedding_cache_dir or ""),
         "retrieval_queries": len(retrieval_queries),
@@ -325,6 +368,9 @@ def parse_pdf_for_profile(
             "chunks": str(Path(run_dir) / "03_chunks.json"),
             "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
             "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
+            "document_index": str(Path(run_dir) / "03_document_index.json"),
+            "reference_links": str(Path(run_dir) / "03_reference_links.json"),
+            "reference_expansion": str(Path(run_dir) / "05_reference_expansion.json"),
         }
     write_json(output, payload)
 
@@ -345,6 +391,8 @@ def main() -> None:
     parser.add_argument("--retrieval-mode", choices=["none", "vector", "hybrid"], default="hybrid")
     parser.add_argument("--retrieval-backend", choices=["ngram", "local-embedding"], default="ngram")
     parser.add_argument("--retrieval-source", choices=["all", "cursor"], default="all")
+    parser.add_argument("--reference-expansion", choices=["none", "direct", "recursive"], default="none")
+    parser.add_argument("--reference-max-depth", type=int, default=1)
     parser.add_argument("--embedding-model-path", default=None)
     parser.add_argument("--embedding-cache-dir", default=str(Path("outputs") / "embedding_cache"))
     parser.add_argument("--top-k", type=int, default=30)
@@ -384,6 +432,8 @@ def main() -> None:
         embedding_model_path=args.embedding_model_path,
         embedding_cache_dir=args.embedding_cache_dir,
         retrieval_source=args.retrieval_source,
+        reference_expansion=args.reference_expansion,
+        reference_max_depth=args.reference_max_depth,
     )
     print(
         json.dumps(
