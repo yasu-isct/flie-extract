@@ -5,7 +5,7 @@
 English:
 
 ```text
-Profile-guided cursor extraction for complex long PDFs: compresses LLM input and converts dense documents into structured JSON and readable reports.
+Profile-guided evidence selection for complex long PDFs: compresses LLM input and converts dense documents into structured JSON and readable reports.
 ```
 
 日本語:
@@ -18,9 +18,9 @@ Profile-guided cursor extraction for complex long PDFs: compresses LLM input and
 
 English:
 
-This project is an end-to-end long-document information extraction system based on profile-guided cursor extraction. It turns user conditions into extraction cursors, reduces unnecessary chunks before LLM calls, and then applies category-specific Pydantic schemas for structured JSON output.
+This project is an end-to-end long-document information extraction system based on profile-guided evidence selection. It turns user conditions into an evidence selector, reduces unnecessary chunks before LLM calls, and then applies category-specific Pydantic schemas for structured JSON output.
 
-The system combines PyMuPDF and pdfplumber for PDF parsing, rule-based profiling and chunking, profile/cursor-based input compression, OpenAI-compatible LLM extraction, schema validation, deduplication, and human-readable report generation. In an evaluation sample, cursor selection reduced LLM candidate chunks from 123 to 51 before extraction.
+The system combines PyMuPDF and pdfplumber for PDF parsing, rule-based profiling and chunking, profile-guided evidence selection, OpenAI-compatible LLM extraction, schema validation, deduplication, and human-readable report generation. In an evaluation sample, the evidence selector reduced LLM candidate chunks from 123 to 51 before extraction.
 
 日本語:
 

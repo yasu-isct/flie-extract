@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "admission-pdf-parser"
 version = "0.1.0"
-description = "Profile-guided cursor extraction for long administrative PDFs."
+description = "Profile-guided evidence selection for long administrative PDFs."
 requires-python = ">=3.10"
 dependencies = [
     "PyMuPDF>=1.24.0",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .chunker import TextChunk
-from .cursor_selector import build_cursor
+from .evidence_selector import build_evidence_selector
 from .profile_input import add_profile_arguments, profile_from_args
 from .utils import DIAGNOSTICS_DIR, ensure_dir
 
@@ -141,7 +141,7 @@ def _load_or_encode_chunk_embeddings(
 
 
 def build_profile_queries(profile: Any) -> list[str]:
-    cursor = build_cursor(profile)
+    evidence_selector = build_evidence_selector(profile)
     targets = " ".join(profile.targets)
     queries = [
         "出願期間 締切 必着 消印有効 インターネット出願",
@@ -158,14 +158,14 @@ def build_profile_queries(profile: Any) -> list[str]:
                 f"{targets} 志望理由 研究室 指導教員",
             ]
         )
-    if cursor.english_aliases:
-        queries.append(f"{' '.join(cursor.english_aliases)} スコア 直送 機関コード DIコード")
-    if cursor.background_aliases:
-        queries.append(f"{' '.join(cursor.background_aliases)} 出願資格 証明書 在留カード パスポート")
-    if cursor.degree_aliases:
-        queries.append(f"{' '.join(cursor.degree_aliases)} 入試 出願 課程")
-    if cursor.exam_type_aliases:
-        queries.append(f"{' '.join(cursor.exam_type_aliases)} 入試 選抜")
+    if evidence_selector.english_aliases:
+        queries.append(f"{' '.join(evidence_selector.english_aliases)} スコア 直送 機関コード DIコード")
+    if evidence_selector.background_aliases:
+        queries.append(f"{' '.join(evidence_selector.background_aliases)} 出願資格 証明書 在留カード パスポート")
+    if evidence_selector.degree_aliases:
+        queries.append(f"{' '.join(evidence_selector.degree_aliases)} 入試 出願 課程")
+    if evidence_selector.exam_type_aliases:
+        queries.append(f"{' '.join(evidence_selector.exam_type_aliases)} 入試 選抜")
     return list(dict.fromkeys(query for query in queries if query.strip()))
 
 

@@ -10,8 +10,12 @@ from threading import Lock
 from .applicability import evaluate_applicability, generate_narrative_report
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
-from .cursor_selector import build_cursor, select_chunks_by_cursor, write_cursor_outputs
 from .document_index import build_document_index, write_document_index
+from .evidence_selector import (
+    build_evidence_selector,
+    select_chunks_by_evidence_selector,
+    write_evidence_selector_outputs,
+)
 from .extractor import extract_pdf
 from .llm_parser import combine_chunks_for_category, parse_category_batch, parse_chunk_by_category
 from .merger import merge_admission_infos, warning_to_structured
@@ -222,21 +226,32 @@ def parse_pdf_for_profile(
     if run_dir:
         write_document_index(document_index, Path(run_dir) / "03_document_index.json")
         write_reference_links(reference_links, Path(run_dir) / "03_reference_links.json")
-    cursor = build_cursor(profile)
-    cursor_chunks, decisions = select_chunks_by_cursor(chunks, cursor)
+    evidence_selector = build_evidence_selector(profile)
+    evidence_chunks, decisions = select_chunks_by_evidence_selector(chunks, evidence_selector)
 
     stem = output.stem
-    write_cursor_outputs(
+    write_evidence_selector_outputs(
         chunks,
         decisions,
-        diagnostics_dir / ("04_cursor_chunks.json" if run_dir else f"{stem}_cursor_chunks.json"),
-        diagnostics_dir / ("04_cursor_decisions.json" if run_dir else f"{stem}_cursor_decisions.json"),
+        diagnostics_dir
+        / ("04_evidence_selector_chunks.json" if run_dir else f"{stem}_evidence_selector_chunks.json"),
+        diagnostics_dir
+        / (
+            "04_evidence_selector_decisions.json"
+            if run_dir
+            else f"{stem}_evidence_selector_decisions.json"
+        ),
     )
     retrieval_queries: list[str] = []
     retrieval_decisions: list[dict] = []
+    normalized_retrieval_source = "profile-selected" if retrieval_source == "cursor" else retrieval_source
     if retrieval_mode in {"vector", "hybrid"}:
         retrieval_queries = build_profile_queries(profile)
-        source_chunks = chunks if retrieval_source == "all" and retrieval_mode == "hybrid" else cursor_chunks
+        source_chunks = (
+            chunks
+            if normalized_retrieval_source == "all" and retrieval_mode == "hybrid"
+            else evidence_chunks
+        )
         retrieved_chunks, retrieval_decisions = retrieve_chunks(
             source_chunks,
             retrieval_queries,
@@ -246,7 +261,7 @@ def parse_pdf_for_profile(
             embedding_cache_dir=embedding_cache_dir,
         )
         if retrieval_mode == "hybrid":
-            filtered_chunks = _merge_and_balance_chunks(cursor_chunks, retrieved_chunks)
+            filtered_chunks = _merge_and_balance_chunks(evidence_chunks, retrieved_chunks)
         else:
             filtered_chunks = retrieved_chunks
         write_retrieval_outputs(
@@ -257,7 +272,7 @@ def parse_pdf_for_profile(
             retrieval_queries,
         )
     else:
-        filtered_chunks = cursor_chunks
+        filtered_chunks = evidence_chunks
 
     reference_expansion_records = []
     if reference_expansion != "none":
@@ -288,13 +303,14 @@ def parse_pdf_for_profile(
             "_profile": {
                 **profile.model_dump(),
                 "source_chunks": len(chunks),
-                "cursor_chunks": len(cursor_chunks),
+                "evidence_selector_chunks": len(evidence_chunks),
+                "cursor_chunks": len(evidence_chunks),
                 "selected_chunks": len(filtered_chunks),
                 "category_counts": category_counts(filtered_chunks),
                 "page_scope": page_scope,
                 "retrieval_mode": retrieval_mode,
                 "retrieval_backend": retrieval_backend,
-                "retrieval_source": retrieval_source,
+                "retrieval_source": normalized_retrieval_source,
                 "reference_expansion": reference_expansion,
                 "reference_max_depth": reference_max_depth,
                 "reference_links": len(reference_links),
@@ -307,7 +323,8 @@ def parse_pdf_for_profile(
                 "max_workers": max_workers or int(os.getenv("LLM_MAX_WORKERS", "4")),
                 "max_batch_chars": max_batch_chars,
             },
-            "_cursor": cursor.model_dump(),
+            "_evidence_selector": evidence_selector.model_dump(),
+            "_cursor": evidence_selector.model_dump(),
             "_retrieval": {
                 "queries": retrieval_queries,
                 "decisions": retrieval_decisions,
@@ -321,7 +338,8 @@ def parse_pdf_for_profile(
                 "dry_run_summary": str(output),
                 "clean_markdown": str(Path(run_dir) / "02_clean.md"),
                 "chunks": str(Path(run_dir) / "03_chunks.json"),
-                "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
+                "evidence_selector_chunks": str(Path(run_dir) / "04_evidence_selector_chunks.json"),
+                "cursor_chunks": str(Path(run_dir) / "04_evidence_selector_chunks.json"),
                 "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
                 "document_index": str(Path(run_dir) / "03_document_index.json"),
                 "reference_links": str(Path(run_dir) / "03_reference_links.json"),
@@ -364,13 +382,14 @@ def parse_pdf_for_profile(
     payload["_profile"] = {
         **profile.model_dump(),
         "source_chunks": len(chunks),
-        "cursor_chunks": len(cursor_chunks),
+        "evidence_selector_chunks": len(evidence_chunks),
+        "cursor_chunks": len(evidence_chunks),
         "selected_chunks": len(filtered_chunks),
         "category_counts": category_counts(filtered_chunks),
         "page_scope": page_scope,
         "retrieval_mode": retrieval_mode,
         "retrieval_backend": retrieval_backend,
-        "retrieval_source": retrieval_source,
+        "retrieval_source": normalized_retrieval_source,
         "reference_expansion": reference_expansion,
         "reference_max_depth": reference_max_depth,
         "reference_links": len(reference_links),
@@ -386,7 +405,8 @@ def parse_pdf_for_profile(
         "max_workers": max_workers,
         "max_batch_chars": max_batch_chars,
     }
-    payload["_cursor"] = cursor.model_dump()
+    payload["_evidence_selector"] = evidence_selector.model_dump()
+    payload["_cursor"] = evidence_selector.model_dump()
     payload["_retrieval"] = {
         "queries": retrieval_queries,
         "decisions": retrieval_decisions,
@@ -421,7 +441,8 @@ def parse_pdf_for_profile(
             "llm_report": str(llm_report_output) if llm_report else "",
             "clean_markdown": str(Path(run_dir) / "02_clean.md"),
             "chunks": str(Path(run_dir) / "03_chunks.json"),
-            "cursor_chunks": str(Path(run_dir) / "04_cursor_chunks.json"),
+            "evidence_selector_chunks": str(Path(run_dir) / "04_evidence_selector_chunks.json"),
+            "cursor_chunks": str(Path(run_dir) / "04_evidence_selector_chunks.json"),
             "retrieved_chunks": str(Path(run_dir) / "05_retrieved_chunks.json"),
             "document_index": str(Path(run_dir) / "03_document_index.json"),
             "reference_links": str(Path(run_dir) / "03_reference_links.json"),
@@ -449,7 +470,13 @@ def main() -> None:
     parser.add_argument("--page-scope", choices=["all", "relevant"], default="all")
     parser.add_argument("--retrieval-mode", choices=["none", "vector", "hybrid"], default="hybrid")
     parser.add_argument("--retrieval-backend", choices=["ngram", "local-embedding"], default="ngram")
-    parser.add_argument("--retrieval-source", choices=["all", "cursor"], default="all")
+    parser.add_argument(
+        "--retrieval-source",
+        choices=["all", "profile-selected", "cursor"],
+        default="all",
+        help="Use all chunks or only profile-guided evidence selector chunks. "
+        "`cursor` is kept as a legacy alias for `profile-selected`.",
+    )
     parser.add_argument("--reference-expansion", choices=["none", "direct", "recursive"], default="none")
     parser.add_argument("--reference-max-depth", type=int, default=1)
     parser.add_argument("--embedding-model-path", default=None)
