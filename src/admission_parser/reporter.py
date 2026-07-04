@@ -155,6 +155,10 @@ def _profile_filter(items: list[dict[str, Any]], profile: ApplicantProfile) -> l
     ]
 
 
+def _english_filter(items: list[dict[str, Any]], profile: ApplicantProfile) -> list[dict[str, Any]]:
+    return [item for item in items if _matches_english(item, profile)]
+
+
 def _date_range(item: dict[str, Any]) -> str:
     start = _clean(item.get("start_date"))
     end = _clean(item.get("end_date"))
@@ -382,7 +386,7 @@ def build_report(data: dict[str, Any], profile: ApplicantProfile | None = None) 
         lines.append("- 未抽取到与该画像明确匹配的时间信息。")
     lines.append("")
 
-    fees = _group_fees(_profile_filter(data.get("fees", []), profile))
+    fees = _group_fees(data.get("fees", []))
     lines += ["## 费用", ""]
     useful_fees = [fee for fee in fees if fee.get("amount_yen") or fee.get("payment_method") or fee.get("notes")]
     for fee in useful_fees:
@@ -436,7 +440,7 @@ def build_report(data: dict[str, Any], profile: ApplicantProfile | None = None) 
         lines.append("- 未抽取到与该画像明确匹配的考试日程。")
     lines.append("")
 
-    english = _profile_filter(data.get("english_requirements", []), profile)
+    english = _english_filter(data.get("english_requirements", []), profile)
     english = _dedupe(english, ("test_type", "minimum_score", "notes"))
     lines += ["## 英语成绩要求", ""]
     useful_english = [item for item in english if item.get("test_type") or item.get("notes")]
