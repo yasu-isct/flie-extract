@@ -1,118 +1,80 @@
-# Profile-Guided Long Document Extractor
+# Profile-Guided Admission Document Intelligence
 
-Project direction note: see [docs/product_mainline.md](docs/product_mainline.md) for the current product mainline, performance target, caching roadmap, and reasoning-chain direction.
+面向日本留学生申请场景的长文档解析原型。
 
-## English
+本项目不是单次 PDF 总结工具，而是在探索一种更可落地的募集要项处理方式：把大学院募集要项从“很长、很难检索、很难复用的 PDF”，转成可追溯的证据、结构化事实、画像适用性判断和可读报告。
 
-This project explores **profile-guided cursor extraction for complex long documents**.  
-Instead of sending an entire PDF to an LLM, it first builds a user/profile-specific extraction cursor, narrows the document into high-value chunks, and then applies category-specific structured schemas to generate reliable JSON and human-readable reports.
+Current English summary:
 
-It is designed as a reusable extraction framework for administrative PDFs, policy documents, application manuals, and other long documents where small or local LLMs struggle with cost, context length, and noisy extraction.
+> Profile-guided evidence selection and reasoning for long administrative PDFs. The pipeline compresses LLM input, keeps source evidence traceable, and generates structured JSON plus applicant-oriented reports.
 
-Current recommended mode:
+## 当前定位
 
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --profile-config configs\applicant_profile.example.yaml `
-  --page-scope all `
-  --retrieval-mode hybrid `
-  --top-k 30 `
-  --run-dir outputs\runs\2027_master_hybrid_run
-```
+目标用户是准备申请日本大学院的学生，尤其是需要快速判断“我能不能报、要交什么、什么时候考、英语成绩是否适用”的场景。
 
-The hybrid mode combines deterministic profile/cursor selection with local n-gram retrieval. It is designed to reduce keyword-only recall risk while keeping LLM input smaller than a full-document extraction.
+当前样例是东京科学大学大学院募集要项，但项目主线不是写死单校规则，而是构建一个可泛化的 long document extractor：
 
-For faster API runs, the profile pipeline now defaults to category-batched LLM extraction. It groups selected chunks by information type, sends one bounded batch per category where possible, and runs categories in parallel:
+- PDF 解析：PyMuPDF + pdfplumber 双通道提取文本、表格和页信息。
+- 画像驱动：用申请者 profile 缩小候选范围，例如目标学院、目标系、学位、入试类型、英语考试、学历背景。
+- 证据检索：cursor/profile selection + n-gram 或 local embedding retrieval。
+- 引用扩展：识别“下記(1)”这类文档内跳转，并做 direct/recursive reference expansion。
+- LLM 抽取：把 selected chunks 按 category 分组，合并成 batch，并行请求 API，返回结构化 JSON。
+- 适用性判断：对抽取出的事实做 applicant-specific applicability pass。
+- 可读报告：基于结构化事实和适用性判断生成面向申请者的 Markdown 报告。
+- 缓存实验：已有 local embedding cache、LLM extraction cache、applicability/report cache MVP。
 
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --profile-config configs\applicant_profile.example.yaml `
-  --page-scope all `
-  --retrieval-mode hybrid `
-  --llm-strategy category `
-  --max-workers 4 `
-  --run-dir outputs\runs\2027_master_category_api_run
-```
+更完整的产品主线见：
 
-Use `--llm-strategy chunk` to fall back to the older per-chunk request mode.
+- [docs/product_mainline.md](docs/product_mainline.md)
+- [docs/roadmap.md](docs/roadmap.md)
 
-## 日本語
+## 推荐主线
 
-本プロジェクトは、**複雑な長文書に対するプロファイル誘導型カーソル抽出**を扱う情報抽出システムです。  
-PDF 全体をそのまま LLM に渡すのではなく、ユーザー条件に基づいて抽出カーソルを構築し、必要なチャンクだけに入力を圧縮したうえで、カテゴリ別の構造化 Schema により JSON と読みやすいレポートを生成します。
-
-行政文書、申請要項、規程類などの長文 PDF を、小規模モデルやローカルモデルでも扱いやすい形へ変換するための汎用的な抽出フレームワークとして設計しています。
-
-## 中文说明
-
-本项目是一个面向复杂长文档的 profile-guided cursor extraction 框架：先根据用户条件构建抽取游标，在 LLM 调用前压缩输入范围，再通过结构化 Schema 输出 JSON 和可读报告。
-
-它的目标是成为一个可泛化的长文档信息抽取工具，适用于行政 PDF、申请手册、政策文档、规程说明等高密度文本场景，尤其关注如何降低 token 消耗并提升小模型/本地模型的可用性。
-
-## GitHub Description
-
-English:
+下一阶段推荐从单纯字段抽取，升级到 evidence + question + logic-chain extraction。
 
 ```text
-Profile-guided cursor extraction for complex long PDFs: compresses LLM input and converts dense documents into structured JSON and readable reports.
+PDF
+ -> Evidence Index
+ -> Question Plan
+ -> Recursive Evidence Gathering
+ -> Logic Chain Synthesis
+ -> Applicability Pass
+ -> Narrative Report
 ```
 
-日本語:
+这个方向的核心是：本地代码负责解析、索引、检索、缓存和证据追踪；LLM 负责理解证据、生成结构化判断和自然语言报告。
 
-```text
-プロファイル誘導型カーソル抽出により長文PDFのLLM入力を圧縮し、高密度文書を構造化JSONと可読レポートへ変換する汎用情報抽出プロジェクト。
-```
+## 当前能力状态
 
-## 当前状态
+已经完成：
 
-- PDF 解析：PyMuPDF + pdfplumber 双通道提取文本、block、word 和表格。
-- 相关页筛选：根据可配置关键词和文档结构信号筛出目标页。
-- 文本清洗：将相关页整理为 Markdown，表格转为 Markdown 表格。
-- 切片：按日文标题和长度切成带页码、标题、PDF 名的 chunks。
-- 画像输入：支持 CLI、YAML 配置和交互式输入。
-- 游标筛选：根据目标实体、任务类型、用户条件和背景信息筛掉低价值 chunks。
-- LLM 抽取：按类别调用更小的 Pydantic Schema，减少 token、输出噪声和等待时间。
-- 后处理：合并多 chunk 结果，去重、校验日期、转换元号、结构化 warnings。
-- 人类可读报告：从 JSON 生成申请者更容易阅读的 Markdown 报告。
+- PDF 文本/表格抽取。
+- chunker、page boundary split、profile input。
+- profile-guided cursor selector。
+- hybrid retrieval。
+- n-gram retrieval backend。
+- local embedding retrieval backend，默认模型路径可使用 `models/bge-m3`。
+- retrieval cross-check HTML/JSON/Markdown 诊断产物。
+- category-batched parallel LLM extraction。
+- LLM extraction cache。
+- applicability pass。
+- LLM narrative report。
+- recursive reference expansion MVP。
+- chunk 边界强化，降低跨页、跨学系污染。
+- pytest 覆盖当前核心模块。
 
-## 项目结构
+仍在优化：
 
-```text
-.
-├─ samples/                         # 本地 PDF 样本目录，PDF 默认不会上传到 Git
-├─ outputs/                         # 运行结果目录，默认不上传到 Git
-├─ backups/                         # 实验结果备份目录，默认不上传到 Git
-├─ configs/
-│  └─ universities.yaml             # 阶段二站点配置示例
-├─ docs/
-│  └─ experiments/                  # 实验记录、运行耗时、优化记录
-├─ tests/                           # pytest 测试
-├─ src/admission_parser/
-│  ├─ profiler.py                   # 相关页筛选和页面结构探查
-│  ├─ extractor.py                  # PyMuPDF + pdfplumber 文本/表格提取
-│  ├─ chunker.py                    # Markdown 文本切片
-│  ├─ profile_filter.py             # 按申请者画像筛选 chunks
-│  ├─ profile_input.py              # 画像输入：CLI/YAML/交互式输入
-│  ├─ cursor_selector.py            # 画像游标构建与 chunk 精选
-│  ├─ category_router.py            # chunks 分类：材料、英语、考试、费用等
-│  ├─ schemas.py                    # Pydantic 输出模型
-│  ├─ llm_parser.py                 # Instructor + OpenAI-compatible LLM 调用
-│  ├─ merger.py                     # 多 chunk 结果合并、去重、warnings 结构化
-│  ├─ validator.py                  # 日期、必填字段、元号转换校验
-│  ├─ reporter.py                   # JSON 转可读 Markdown 报告
-│  ├─ pipeline.py                   # 通用完整解析主程序
-│  ├─ profile_pipeline.py           # 推荐：画像驱动优化解析主程序
-│  ├─ stage2/                       # 爬虫、更新检测、SQLite 持久化入口
-│  └─ stage3/                       # diff、通知、定时任务入口
-├─ .env.example                     # API 配置模板，可提交
-├─ .env                             # 本地 API Key，禁止提交
-├─ pyproject.toml                   # Python 项目配置
-└─ test_env.py                      # PDF/LLM 环境验证脚本
-```
+- document-level manifest。
+- 更稳定的 embedding index/cache 管理层。
+- reasoning-chain MVP。
+- report/applicability cache key 去除运行态字段。
+- 主流大学募集要项的离线索引和复用。
+- 面向本地小模型的蒸馏/LoRA 数据积累。
 
-## 快速开始
+## 安装
 
-Windows PowerShell：
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -120,26 +82,45 @@ python -m venv .venv
 python -m pip install -e .[dev]
 ```
 
-把用于测试的长文档 PDF 放进 `samples/`。例如：
+如果要使用本地向量检索：
+
+```powershell
+python -m pip install -e .[embedding]
+```
+
+或者一次安装：
+
+```powershell
+python -m pip install -e .[dev,embedding]
+```
+
+## 本地文件
+
+这些文件和目录默认不上传 GitHub：
+
+- `.env`
+- `samples/`
+- `models/`
+- `outputs/`
+
+建议放置：
 
 ```text
 samples/2027_4_2026_9_master.pdf
+models/bge-m3/
+outputs/
 ```
 
-注意：`*.pdf` 已经写入 `.gitignore`，意思是 PDF 文件不会被 Git 跟踪，也不会被一起上传到 GitHub。这样可以避免误传大文件、版权文件或内部资料。
+`models/bge-m3` 体积较大，只保留在本地。
 
 ## API 配置
 
-不要在 `.venv/` 里新建 API 配置文件。请在项目根目录创建 `.env`，位置如下：
+在项目根目录创建 `.env`，不要放进 `.venv/`。
 
-```text
-C:\Users\DELL\Documents\募集要项提取\.env
-```
-
-DeepSeek 示例：
+示例：
 
 ```env
-OPENAI_API_KEY=你的 DeepSeek API Key
+OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://api.deepseek.com
 INSTRUCTOR_MODE=JSON
 OPENAI_MODEL=deepseek-v4-flash
@@ -151,31 +132,105 @@ LLM_USE_PRO_FOR_COMPLEX=true
 LLM_PRO_COMPLEX_CHAR_THRESHOLD=7000
 ```
 
-`.env` 已经被 `.gitignore` 排除，不会上传到 GitHub。`.env.example` 是可以提交的模板，里面不能写真实 key。
+`.env.example` 可以提交，真实 `.env` 不要提交。
 
-## 基础验证
-
-只验证 PDF 读取：
+## 快速验证
 
 ```powershell
-.\.venv\Scripts\python.exe test_env.py samples\2027_4_2026_9_master.pdf
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-同时验证 LLM 连通性：
+当前基准：`37 passed`。
+
+## 推荐 dry-run
+
+dry-run 不调用 LLM，适合确认 chunk 筛选、retrieval 和 reference expansion 的效果。
 
 ```powershell
-.\.venv\Scripts\python.exe test_env.py samples\2027_4_2026_9_master.pdf --check-llm
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --retrieval-backend ngram `
+  --retrieval-source cursor `
+  --top-k 30 `
+  --reference-expansion direct `
+  --run-dir outputs\runs\2027_master_ngram_cursor_dry_run
 ```
 
-## 推荐运行方式：画像驱动解析
+## 本地 embedding dry-run
 
-推荐先使用画像配置文件。模板在：
+如果本地已经有 `models/bge-m3`：
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --dry-run `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --retrieval-backend local-embedding `
+  --retrieval-source cursor `
+  --embedding-model-path models\bge-m3 `
+  --embedding-cache-dir outputs\embedding_cache `
+  --top-k 30 `
+  --reference-expansion direct `
+  --run-dir outputs\runs\2027_master_embedding_cursor_dry_run
+```
+
+注意：当前 embedding cache 还是“按输入文本集合 hash 的本地缓存”，不是完整 index 管理层。重复跑同一批输入会命中缓存，但 chunks、参数或文本集合变化时会生成新的缓存文件。
+
+## 完整 LLM 运行
+
+```powershell
+.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
+  --profile-config configs\applicant_profile.example.yaml `
+  --page-scope all `
+  --retrieval-mode hybrid `
+  --retrieval-backend local-embedding `
+  --retrieval-source cursor `
+  --embedding-model-path models\bge-m3 `
+  --embedding-cache-dir outputs\embedding_cache `
+  --top-k 30 `
+  --reference-expansion direct `
+  --llm-cache-dir outputs\llm_cache `
+  --applicability-pass `
+  --llm-report `
+  --run-dir outputs\runs\2027_master_full_run
+```
+
+LLM 不是直接返回最终报告。当前流程是：
 
 ```text
-configs/applicant_profile.example.yaml
+selected chunks
+ -> category-batched API requests
+ -> structured JSON
+ -> local merge / validate
+ -> applicability pass
+ -> narrative report
 ```
 
-示例内容：
+## 常见输出
+
+使用 `--run-dir` 时，主要产物按序号写入同一个目录。常见文件包括：
+
+- `01_profile.json`: 本次申请者画像。
+- `02_relevant_pages.json`: 页级筛选诊断。
+- `03_clean.md`: PDF 清洗后的 Markdown。
+- `04_chunks.json`: chunk 切分结果。
+- `05_selected_chunks.json`: profile/cursor 选中的候选证据。
+- `06_retrieval.json`: 检索补充结果。
+- `07_retrieval_crosscheck.html`: 关键词检索和向量/混合检索的交叉验证视图。
+- `07_structured.json`: LLM batch 返回并合并后的结构化事实。
+- `08_report.md`: 本地 reporter 生成的规则型报告。
+- `09_applicability.json`: LLM 适用性判断。
+- `10_llm_report.md`: LLM 生成的自然语言报告。
+
+报告质量问题通常不要只看最终 Markdown，要回到 selected chunks、retrieval cross-check、structured JSON 和 applicability JSON 一起定位。
+
+## 画像配置
+
+推荐使用 `configs/applicant_profile.example.yaml`：
 
 ```yaml
 target_college:
@@ -192,171 +247,73 @@ include_global_sections: true
 strict_mode: false
 ```
 
-先用 dry-run 看游标会筛出多少 chunks，不会调用 API，也不会花 token：
+也可以直接用 CLI：
 
 ```powershell
 .\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --profile-config configs\applicant_profile.example.yaml `
-  --dry-run
-```
-
-确认筛选范围合理后，运行真正的 LLM 抽取：
-
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --profile-config configs\applicant_profile.example.yaml `
-  --output outputs\final_json\2027_4_2026_9_master_profile_optimized.json `
-  --report-output outputs\final_reports\2027_4_2026_9_master_profile_optimized_report.md
-```
-
-也可以不用配置文件，直接通过 CLI 输入画像：
-
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf `
-  --target-college 情報理工学院 `
-  --target-department 数理・計算科学系 `
-  --target-department 情報工学系 `
+  --target-college 環境・社会理工学院 `
   --degree-level master `
   --exam-type general `
-  --english-test toefl `
-  --background cn_undergrad `
-  --nationality-or-region china `
+  --english-test toeic `
+  --background jp_undergrad `
   --dry-run
 ```
 
-如果想逐项输入，可以使用：
-
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.profile_pipeline samples\2027_4_2026_9_master.pdf --interactive --dry-run
-```
-
-旧参数 `--target` 仍然兼容，但新实验建议优先使用 `--target-college`、`--target-department`、`--degree-level`、`--exam-type` 等更细的游标字段。
-
-`--background` 可选值：
-
-- `cn_undergrad`：中国大陆全日制本科
-- `jp_undergrad`：日本本科
-- `overseas_undergrad`：海外本科
-
-## 通用完整解析
-
-如果想不带画像，尽可能抽取整份文档的通用信息：
-
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.pipeline samples\2027_4_2026_9_master.pdf `
-  --output outputs\final_json\2027_4_2026_9_master.json
-```
-
-这会比画像驱动版本更慢、更贵，也更容易保留对当前申请者无用的信息。
-
-## 从已有 JSON 生成报告
-
-```powershell
-.\.venv\Scripts\python.exe -m admission_parser.reporter outputs\final_json\2027_4_2026_9_master_profile_optimized.json `
-  --target 情報理工学院 `
-  --target 数理・計算科学系 `
-  --target 情報工学系 `
-  --english-test toefl `
-  --background cn_undergrad `
-  --output outputs\final_reports\personal_report.md
-```
-
-## 输出文件说明
-
-常见输出文件之间的关系如下：
+## 项目结构
 
 ```text
-PDF
-  ↓ profiler.py
-*_relevant_pages.json       # 哪些页命中了关键词，以及每页的结构探查信息
-  ↓ extractor.py
-*_relevant_clean.md         # 相关页清洗后的 Markdown 文本，给人和 LLM 都能读
-  ↓ chunker.py
-*_relevant_chunks.json      # 带页码/标题/来源的切片，是 LLM 批量抽取的输入
-  ↓ profile_input.py + cursor_selector.py
-*_cursor_chunks.json        # 画像游标筛出的 LLM 输入
-*_cursor_decisions.json     # 每个 chunk 被保留/丢弃的原因
-  ↓ profile_pipeline.py + LLM + merger.py + validator.py
-*_profile_optimized.json    # 最终结构化 JSON，适合程序读取
-*_profile_optimized_report.md # 最终可读报告，适合人工查看
+.
+├─ configs/                  # profile 示例配置
+├─ docs/                     # 产品主线、roadmap、实验记录
+├─ models/                   # 本地模型，不提交
+├─ outputs/                  # 运行产物，不提交
+├─ samples/                  # PDF 样本，不提交
+├─ scripts/                  # 辅助脚本
+├─ src/admission_parser/     # 核心代码
+└─ tests/                    # pytest
 ```
 
-默认输出目录已经按用途分层：
+核心模块：
 
-- `outputs/final_reports/`：最终可读报告
-- `outputs/final_json/`：最终结构化 JSON
-- `outputs/intermediate/`：PDF 清洗、相关页、chunks 等过程文件
-- `outputs/diagnostics/`：dry-run、chunk 选择决策等诊断文件
-- `outputs/smoke_tests/`：小规模 API 测试结果
+- `extractor.py`: PDF 文本/表格抽取。
+- `chunker.py`: Markdown chunk 切分。
+- `profile_input.py`: 申请者画像输入。
+- `evidence_selector.py`: profile-guided evidence selection。
+- `vector_retriever.py`: n-gram / local embedding retrieval。
+- `document_index.py`: 文档索引。
+- `reference_resolver.py`: 文档内引用识别。
+- `recursive_retriever.py`: 引用扩展检索。
+- `llm_parser.py`: category-batched LLM structured extraction。
+- `merger.py`: 多 batch JSON 合并。
+- `validator.py`: 日期、金额、warning 等后处理。
+- `applicability.py`: 画像适用性判断。
+- `reporter.py`: 本地 Markdown 报告生成。
+- `profile_pipeline.py`: 推荐入口。
 
-`*_relevant_pages.json` 不是最终结果，它的作用是解释“为什么这些页面被选中”。  
-`*_relevant_chunks.json` 是把清洗后的 Markdown 拆成小块，方便模型逐块抽取，也方便后续做 token 压缩研究。  
-`*_cursor_decisions.json` 是游标筛选日志，适合检查哪些 chunk 被保留、哪些被丢弃，以及原因是什么。  
-真正建议查看的是 `*_profile_optimized_report.md`，JSON 更适合后端、看板和后续自动化使用。
+## 性能目标
 
-## 已记录的优化结果
+当前 pipeline 仍是 builder prototype，不适合作为线上服务直接每次从零跑。
 
-当前样本 `2027_4_2026_9_master.pdf` 的一次画像驱动优化运行结果记录在：
+落地形态应拆成：
 
 ```text
-docs/experiments/2026-05-25_run_baseline_and_optimizations.md
+Cold Build: 新 PDF 入库，允许 5-30 分钟
+Warm Profile: 已有 PDF，新申请者画像，目标 10-30 秒
+Hot Query: 缓存命中，目标 1-3 秒
 ```
 
-关键变化：
+也就是说，未来真正面向用户时，主流大学募集要项应该提前完成 PDF extraction、chunking、embedding index、base extraction 和 logic chain 构建。用户查询时只做 profile matching、applicability 和 report generation。
 
-- LLM 处理 chunks：`123 -> 64`
-- 运行时间：约 `1945s -> 571.91s`
-- JSON 大小：约 `53,485 bytes -> 29,507 bytes`
-- warnings：`82 -> 11`
+## GitHub 描述建议
 
-这些数据说明当前优化方向已经明显降低了 API 时间和输出噪声，但还没有完成“本地 8B 模型也能稳定达到同等效果”的研究目标。
-
-新增画像游标后，当前样本 dry-run 进一步将 chunks 从 `123` 压到 `51`。这个结果还需要用下一次 LLM 实跑确认字段遗漏率，但它已经可以作为 token 压缩实验的输入侧优化版本。
-
-## 测试
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest
+```text
+Profile-guided evidence selection and reasoning for long admission PDFs, turning Japanese graduate application guidelines into traceable facts, applicability decisions, and applicant-oriented reports.
 ```
 
-当前测试覆盖：
+## 近期开发重点
 
-- chunker 切片
-- profile_filter 画像过滤
-- profile_input 画像输入
-- cursor_selector 画像游标筛选
-- category_router 分类路由
-- llm_parser 分类 schema 路由
-- merger 去重和 structured warnings
-- validator 后处理校验
-
-## Git 和 GitHub
-
-常用命令：
-
-```powershell
-git status -sb
-git add README.md
-git commit -m "Update README"
-git push
-```
-
-如果后续某次提交有问题，优先使用可审计的回滚方式：
-
-```powershell
-git log --oneline
-git revert <commit_id>
-git push
-```
-
-`git revert` 会生成一个新的“反向提交”，适合已经推送到 GitHub 的版本。除非非常确定，否则不要对已推送历史使用 `git reset --hard`。
-
-## 后续研究方向
-
-这个项目后续适合作为“长 PDF 行政文档的信息抽取与 token 压缩”研究原型。建议优先推进：
-
-- 更细粒度的申请者画像字段：学院、系、专攻、入试区分、英语考试、学历背景、国籍/在留状态。
-- chunk 压缩策略：标题树、关键词窗口、表格保真压缩、重复提示删除、跨页合并。
-- 本地轻量模型对比：用 API 大模型结果做银标数据，再测试 8B 模型在压缩输入上的字段准确率。
-- Docling 对比实验：把 Docling 作为第三解析后端或疑难页 fallback，与 PyMuPDF + pdfplumber 在表格保真、token 数、速度和抽取准确率上做 A/B/C 对比。
-- 看板和纠错闭环：把人工修正数据沉淀为 few-shot 示例和错误模式报告。
+1. 修正 applicability/report cache key，排除 `llm_cache_hits`、`llm_cache_misses` 等运行态字段。
+2. 建立 document-level manifest，统一 `pdf_hash`、`chunker_version`、`prompt_version`、`schema_version`。
+3. 实装 reasoning-chain MVP，让 LLM 输出 question、answer、reasoning_steps、evidence、uncertainty。
+4. 用 Gemini 生成的高质量报告作为 gold sample，对齐覆盖项和表达质量。
+5. 继续强化 chunk 边界、target locality 和跨页引用处理。
