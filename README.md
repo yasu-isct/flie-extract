@@ -26,6 +26,7 @@ Current English summary:
 更完整的产品主线见：
 
 - [docs/product_mainline.md](docs/product_mainline.md)
+- [docs/architecture.md](docs/architecture.md)
 - [docs/roadmap.md](docs/roadmap.md)
 
 ## 推荐主线
