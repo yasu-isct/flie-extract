@@ -46,6 +46,23 @@ def _split_without_cutting_tables(text: str, max_chars: int) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
+def _split_on_page_boundaries(text: str) -> list[str]:
+    matches = list(PAGE_RE.finditer(text))
+    if len(matches) <= 1:
+        return [text.strip()] if text.strip() else []
+
+    parts: list[str] = []
+    first_start = matches[0].start()
+    if first_start > 0 and text[:first_start].strip():
+        parts.append(text[:first_start].strip())
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        part = text[match.start() : end].strip()
+        if part:
+            parts.append(part)
+    return parts
+
+
 def chunk_markdown(markdown: str, pdf_name: str, max_chars: int = 6000) -> list[TextChunk]:
     matches = list(TITLE_RE.finditer(markdown))
     sections: list[tuple[str, str]] = []
@@ -59,15 +76,18 @@ def chunk_markdown(markdown: str, pdf_name: str, max_chars: int = 6000) -> list[
 
     chunks: list[TextChunk] = []
     for title, section in sections:
-        for part in _split_without_cutting_tables(section, max_chars):
-            chunks.append(
-                TextChunk(
-                    pdf_name=pdf_name,
-                    page_numbers=_page_numbers(part),
-                    title=title,
-                    text=part,
+        for page_part in _split_on_page_boundaries(section):
+            if not _page_numbers(page_part) and page_part.strip() == title:
+                continue
+            for part in _split_without_cutting_tables(page_part, max_chars):
+                chunks.append(
+                    TextChunk(
+                        pdf_name=pdf_name,
+                        page_numbers=_page_numbers(part),
+                        title=title,
+                        text=part,
+                    )
                 )
-            )
     return chunks
 
 

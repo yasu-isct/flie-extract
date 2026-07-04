@@ -1,5 +1,7 @@
 # Profile-Guided Long Document Extractor
 
+Project direction note: see [docs/product_mainline.md](docs/product_mainline.md) for the current product mainline, performance target, caching roadmap, and reasoning-chain direction.
+
 ## English
 
 This project explores **profile-guided cursor extraction for complex long documents**.  
