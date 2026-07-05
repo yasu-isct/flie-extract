@@ -21,7 +21,7 @@ Current English summary:
 - LLM 抽取：把 selected chunks 按 category 分组，合并成 batch，并行请求 API，返回结构化 JSON。
 - 适用性判断：对抽取出的事实做 applicant-specific applicability pass。
 - 可读报告：基于结构化事实和适用性判断生成面向申请者的 Markdown 报告。
-- 缓存实验：已有 local embedding cache、LLM extraction cache、applicability/report cache MVP。
+- 缓存实验：已有 local embedding cache、LLM extraction cache、profile-independent base facts cache、applicability/report cache MVP。
 
 更完整的产品主线见：
 
@@ -224,6 +224,7 @@ selected chunks
 - `07_retrieval_crosscheck.html`: 关键词检索和向量/混合检索的交叉验证视图。
 - `07_structured.json`: LLM batch 返回并合并后的结构化事实。
 - `08_report.md`: 本地 reporter 生成的规则型报告。
+- `09_base_facts.json`: 不依赖申请者画像的文档事实整理，可跨 TOEIC/TOEFL 等 profile 变化复用。
 - `09_applicability.json`: LLM 适用性判断。
 - `10_llm_report.md`: LLM 生成的自然语言报告。
 
@@ -303,7 +304,7 @@ Warm Profile: 已有 PDF，新申请者画像，目标 10-30 秒
 Hot Query: 缓存命中，目标 1-3 秒
 ```
 
-也就是说，未来真正面向用户时，主流大学募集要项应该提前完成 PDF extraction、chunking、embedding index、base extraction 和 logic chain 构建。用户查询时只做 profile matching、applicability 和 report generation。
+也就是说，未来真正面向用户时，主流大学募集要项应该提前完成 PDF extraction、chunking、embedding index、base facts/base extraction 和 logic chain 构建。用户查询时只做 profile matching、applicability 和 report generation。
 
 ## GitHub 描述建议
 

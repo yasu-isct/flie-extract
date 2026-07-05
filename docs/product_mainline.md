@@ -154,6 +154,7 @@ LLM 不只返回字段，而是返回可复核的逻辑链。
 当前已有 MVP：
 
 - `src/admission_parser/applicability.py`
+- `09_base_facts.json`
 - `09_applicability.json`
 - `10_llm_report.md`
 
@@ -237,12 +238,12 @@ profile -> retrieve cached evidence/chains -> applicability -> report
 
 - local embedding cache
 - LLM extraction cache
+- profile-independent base facts cache
 - applicability/report cache MVP
 
 待修：
 
-- applicability/report cache key 排除运行态字段，例如 llm_cache_hits / misses。
-- 建立 document-level manifest。
+- document-level manifest 和 base facts cache 继续合并到统一缓存管理层。
 - 统一 pdf_hash / chunker_version / prompt_version / schema_version。
 
 ## 小模型与本地化路线
@@ -277,7 +278,7 @@ profile -> retrieve cached evidence/chains -> applicability -> report
 短期优先：
 
 1. 稳定 chunk 边界，减少跨页/跨系污染。
-2. 修正 applicability/report cache key。
+2. 继续推进 base facts / applicability / report 的分层缓存。
 3. 新增 reasoning chain MVP。
 4. 用 Gemini 生成的高质量报告作为 gold sample，对齐报告覆盖项。
 5. 写实验记录，比较：
@@ -297,4 +298,3 @@ profile -> retrieve cached evidence/chains -> applicability -> report
 1. 小模型 LoRA / 蒸馏。
 2. 本地推理服务。
 3. 多大学、多年度、低延迟在线查询。
-

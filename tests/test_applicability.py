@@ -1,8 +1,11 @@
 from admission_parser.applicability import (
+    BaseFactsResult,
     ApplicabilityResult,
     NarrativeReportResult,
     evaluate_applicability,
+    generate_base_facts,
     generate_narrative_report,
+    document_facts_payload,
     stable_payload,
 )
 from admission_parser.profile_input import ApplicantProfileV2
@@ -15,6 +18,11 @@ class FakeCompletions:
     def create(self, **kwargs):
         self.calls += 1
         response_model = kwargs["response_model"]
+        if response_model is BaseFactsResult:
+            return BaseFactsResult(
+                document_summary="募集要项包含英语考试、材料和日程规则。",
+                uncertainties=["目标系细则需要确认"],
+            )
         if response_model is ApplicabilityResult:
             return ApplicabilityResult(
                 profile_summary="中国本科背景，目标情報工学系",
@@ -102,6 +110,43 @@ def test_stable_payload_removes_runtime_metadata():
     }
 
 
+def test_document_facts_payload_excludes_profile_and_derived_fields():
+    structured = {
+        "required_documents": [{"name": "成績証明書", "source_pages": [3]}],
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+        "_profile": {"english_test": "toeic"},
+        "_user_requirements": {"english_test": "toeic"},
+        "_retrieval": {"queries": ["TOEIC"]},
+        "_base_facts": {"document_summary": "old"},
+        "_applicability": {"profile_summary": "old"},
+    }
+
+    assert document_facts_payload(structured) == {
+        "required_documents": [{"name": "成績証明書", "source_pages": [3]}],
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+    }
+
+
+def test_base_facts_cache_ignores_profile_metadata(tmp_path, monkeypatch):
+    fake_client = FakeClient()
+    monkeypatch.setattr("admission_parser.applicability._client", lambda: fake_client)
+    structured_toeic = {
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+        "_profile": {"english_test": "toeic", "llm_cache_hits": 0},
+    }
+    structured_toefl = {
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+        "_profile": {"english_test": "toefl", "llm_cache_hits": 8},
+    }
+
+    first = generate_base_facts(structured_toeic, cache_dir=tmp_path)
+    second = generate_base_facts(structured_toefl, cache_dir=tmp_path)
+
+    assert fake_client.chat.completions.calls == 1
+    assert first.document_summary == second.document_summary
+    assert len(list(tmp_path.glob("*.json"))) == 1
+
+
 def test_applicability_cache_ignores_runtime_metadata(tmp_path, monkeypatch):
     fake_client = FakeClient()
     monkeypatch.setattr("admission_parser.applicability._client", lambda: fake_client)
@@ -131,6 +176,41 @@ def test_applicability_cache_ignores_runtime_metadata(tmp_path, monkeypatch):
     assert fake_client.chat.completions.calls == 1
     assert first.likely_eligibility == second.likely_eligibility
     assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+def test_applicability_uses_cached_base_facts_across_profile_changes(tmp_path, monkeypatch):
+    fake_client = FakeClient()
+    monkeypatch.setattr("admission_parser.applicability._client", lambda: fake_client)
+    structured = {
+        "english_requirements": [
+            {
+                "test_type": "TOEIC",
+                "applicable_to": "数学系を除く全系",
+                "source_pages": [5],
+            }
+        ]
+    }
+    toeic_profile = ApplicantProfileV2(target_department=["環境工学系"], english_test="toeic")
+    toefl_profile = ApplicantProfileV2(target_department=["環境工学系"], english_test="toefl")
+
+    first_base_facts = generate_base_facts(structured, cache_dir=tmp_path)
+    second_base_facts = generate_base_facts(structured, cache_dir=tmp_path)
+    evaluate_applicability(
+        structured,
+        toeic_profile,
+        base_facts=first_base_facts,
+        cache_dir=tmp_path,
+    )
+    evaluate_applicability(
+        structured,
+        toefl_profile,
+        base_facts=second_base_facts,
+        cache_dir=tmp_path,
+    )
+
+    # One base-facts call plus two genuinely profile-specific applicability calls.
+    assert fake_client.chat.completions.calls == 3
+    assert len(list(tmp_path.glob("*.json"))) == 3
 
 
 def test_narrative_report_cache_ignores_runtime_metadata(tmp_path, monkeypatch):
