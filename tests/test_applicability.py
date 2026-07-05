@@ -1,9 +1,13 @@
 from admission_parser.applicability import (
+    BaseReasoningChainsResult,
+    BaseReasoningChain,
+    ReasoningEvidence,
     BaseFactsResult,
     ApplicabilityResult,
     NarrativeReportResult,
     evaluate_applicability,
     generate_base_facts,
+    generate_base_reasoning_chains,
     generate_narrative_report,
     document_facts_payload,
     stable_payload,
@@ -22,6 +26,20 @@ class FakeCompletions:
             return BaseFactsResult(
                 document_summary="募集要项包含英语考试、材料和日程规则。",
                 uncertainties=["目标系细则需要确认"],
+            )
+        if response_model is BaseReasoningChainsResult:
+            return BaseReasoningChainsResult(
+                chains=[
+                    BaseReasoningChain(
+                        question="英语考试规则是什么？",
+                        answer="文档接受 TOEIC 或 TOEFL，需确认各系细则。",
+                        confidence="medium",
+                        reasoning_steps=["结构化 JSON 中存在英语考试要求。"],
+                        evidence=[ReasoningEvidence(source_pages=[5], quote="TOEIC L&R")],
+                        uncertainty="目标系细则需要确认。",
+                    )
+                ],
+                open_questions=["目标系是否有单独英语要求？"],
             )
         if response_model is ApplicabilityResult:
             return ApplicabilityResult(
@@ -147,6 +165,35 @@ def test_base_facts_cache_ignores_profile_metadata(tmp_path, monkeypatch):
     assert len(list(tmp_path.glob("*.json"))) == 1
 
 
+def test_base_reasoning_chains_cache_ignores_profile_metadata(tmp_path, monkeypatch):
+    fake_client = FakeClient()
+    monkeypatch.setattr("admission_parser.applicability._client", lambda: fake_client)
+    base_facts = BaseFactsResult(document_summary="英语规则已抽取。")
+    structured_toeic = {
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+        "_profile": {"english_test": "toeic"},
+    }
+    structured_toefl = {
+        "english_requirements": [{"test_type": "TOEIC", "source_pages": [5]}],
+        "_profile": {"english_test": "toefl"},
+    }
+
+    first = generate_base_reasoning_chains(
+        structured_toeic,
+        base_facts=base_facts,
+        cache_dir=tmp_path,
+    )
+    second = generate_base_reasoning_chains(
+        structured_toefl,
+        base_facts=base_facts,
+        cache_dir=tmp_path,
+    )
+
+    assert fake_client.chat.completions.calls == 1
+    assert first.chains[0].answer == second.chains[0].answer
+    assert len(list(tmp_path.glob("*.json"))) == 1
+
+
 def test_applicability_cache_ignores_runtime_metadata(tmp_path, monkeypatch):
     fake_client = FakeClient()
     monkeypatch.setattr("admission_parser.applicability._client", lambda: fake_client)
@@ -195,22 +242,34 @@ def test_applicability_uses_cached_base_facts_across_profile_changes(tmp_path, m
 
     first_base_facts = generate_base_facts(structured, cache_dir=tmp_path)
     second_base_facts = generate_base_facts(structured, cache_dir=tmp_path)
+    first_reasoning = generate_base_reasoning_chains(
+        structured,
+        base_facts=first_base_facts,
+        cache_dir=tmp_path,
+    )
+    second_reasoning = generate_base_reasoning_chains(
+        structured,
+        base_facts=second_base_facts,
+        cache_dir=tmp_path,
+    )
     evaluate_applicability(
         structured,
         toeic_profile,
         base_facts=first_base_facts,
+        base_reasoning_chains=first_reasoning,
         cache_dir=tmp_path,
     )
     evaluate_applicability(
         structured,
         toefl_profile,
         base_facts=second_base_facts,
+        base_reasoning_chains=second_reasoning,
         cache_dir=tmp_path,
     )
 
-    # One base-facts call plus two genuinely profile-specific applicability calls.
-    assert fake_client.chat.completions.calls == 3
-    assert len(list(tmp_path.glob("*.json"))) == 3
+    # One base-facts call, one base-reasoning call, plus two profile-specific calls.
+    assert fake_client.chat.completions.calls == 4
+    assert len(list(tmp_path.glob("*.json"))) == 4
 
 
 def test_narrative_report_cache_ignores_runtime_metadata(tmp_path, monkeypatch):

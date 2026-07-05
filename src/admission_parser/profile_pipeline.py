@@ -7,7 +7,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
 
-from .applicability import evaluate_applicability, generate_base_facts, generate_narrative_report
+from .applicability import (
+    evaluate_applicability,
+    generate_base_facts,
+    generate_base_reasoning_chains,
+    generate_narrative_report,
+)
 from .chunker import chunk_markdown
 from .category_router import category_counts, categorize_chunk, focus_instruction
 from .document_index import build_document_index, write_document_index
@@ -419,6 +424,14 @@ def parse_pdf_for_profile(
             cache_dir=llm_cache_dir,
         )
         payload["_base_facts"] = base_facts_result.model_dump(mode="json")
+    base_reasoning_chains_result = None
+    if applicability_pass or llm_report:
+        base_reasoning_chains_result = generate_base_reasoning_chains(
+            payload,
+            base_facts=base_facts_result or payload.get("_base_facts"),
+            cache_dir=llm_cache_dir,
+        )
+        payload["_base_reasoning_chains"] = base_reasoning_chains_result.model_dump(mode="json")
     applicability_result = None
     narrative_report = None
     if applicability_pass:
@@ -426,6 +439,8 @@ def parse_pdf_for_profile(
             payload,
             profile,
             base_facts=base_facts_result or payload.get("_base_facts"),
+            base_reasoning_chains=base_reasoning_chains_result
+            or payload.get("_base_reasoning_chains"),
             cache_dir=llm_cache_dir,
         )
         payload["_applicability"] = applicability_result.model_dump(mode="json")
@@ -435,6 +450,8 @@ def parse_pdf_for_profile(
             profile,
             applicability=applicability_result or payload.get("_applicability"),
             base_facts=base_facts_result or payload.get("_base_facts"),
+            base_reasoning_chains=base_reasoning_chains_result
+            or payload.get("_base_reasoning_chains"),
             cache_dir=llm_cache_dir,
         )
     if run_dir:
@@ -442,12 +459,16 @@ def parse_pdf_for_profile(
         report_output = Path(run_dir) / "08_report.md"
         applicability_output = Path(run_dir) / "09_applicability.json"
         base_facts_output = Path(run_dir) / "09_base_facts.json"
+        base_reasoning_output = Path(run_dir) / "09_base_reasoning_chains.json"
         llm_report_output = Path(run_dir) / "10_llm_report.md"
         payload["_artifacts"] = {
             "llm_batches": str(Path(run_dir) / "06_llm_batches.json"),
             "structured_json": str(output),
             "report": str(report_output),
             "base_facts": str(base_facts_output) if base_facts_result else "",
+            "base_reasoning_chains": str(base_reasoning_output)
+            if base_reasoning_chains_result
+            else "",
             "applicability": str(applicability_output) if applicability_pass else "",
             "llm_report": str(llm_report_output) if llm_report else "",
             "clean_markdown": str(Path(run_dir) / "02_clean.md"),
@@ -465,6 +486,11 @@ def parse_pdf_for_profile(
         Path(report_output).write_text(build_report(payload, profile.to_report_profile()), encoding="utf-8")
     if run_dir and base_facts_result:
         write_json(Path(run_dir) / "09_base_facts.json", base_facts_result.model_dump(mode="json"))
+    if run_dir and base_reasoning_chains_result:
+        write_json(
+            Path(run_dir) / "09_base_reasoning_chains.json",
+            base_reasoning_chains_result.model_dump(mode="json"),
+        )
     if run_dir and applicability_pass and applicability_result:
         write_json(Path(run_dir) / "09_applicability.json", applicability_result.model_dump(mode="json"))
     if run_dir and llm_report and narrative_report:

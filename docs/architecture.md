@@ -25,7 +25,7 @@ flowchart TB
 
     outputs --> runs["runs/<run_name>/\n单次运行封包，当前最推荐看这里"]
     outputs --> embedding["embedding_cache/\n本地 embedding hash 缓存和可视化"]
-    outputs --> llm["llm_cache/\nLLM batch/base facts/applicability/report 缓存"]
+    outputs --> llm["llm_cache/\nLLM batch/base facts/base reasoning/applicability/report 缓存"]
     outputs --> old_outputs["diagnostics / intermediate\nfinal_json / final_reports / smoke_tests\n早期默认输出目录"]
 ```
 
@@ -48,6 +48,7 @@ flowchart LR
     merge["merger.py + validator.py\n07_structured.json"]
     rule_report["reporter.py\n08_report.md"]
     base["applicability.py\n09_base_facts.json"]
+    reason["applicability.py\n09_base_reasoning_chains.json"]
     app["applicability.py\n09_applicability.json"]
     llm_report["applicability.py\n10_llm_report.md"]
 
@@ -62,9 +63,10 @@ flowchart LR
     recursive --> batches
     batches --> llm --> merge
     merge --> rule_report
-    merge --> base --> app --> llm_report
+    merge --> base --> reason --> app --> llm_report
     profile --> app
     base --> llm_report
+    reason --> llm_report
 ```
 
 ## 核心源码职责
@@ -86,7 +88,7 @@ flowchart LR
 | `llm_parser.py` | category-batched parallel LLM extraction 和 LLM cache | 主线 |
 | `merger.py` | 多 batch JSON 合并、去重、warning 整理 | 主线 |
 | `validator.py` | 日期、金额、结构化 warning 等校验 | 主线 |
-| `applicability.py` | profile-independent base facts、applicant-specific applicability pass 和 LLM report | 主线 MVP |
+| `applicability.py` | profile-independent base facts/base reasoning chains、applicant-specific applicability pass 和 LLM report | 主线 MVP |
 | `reporter.py` | 本地规则型 Markdown report | 保留 |
 | `cursor_selector.py` | 旧 cursor API 的兼容 wrapper | legacy compatibility |
 | `pipeline.py` | 不带 profile 的旧通用抽取入口 | legacy |
@@ -137,6 +139,7 @@ flowchart TB
     run --> p7["07_structured.json\nLLM JSON 合并后的结构化事实"]
     run --> p8["08_report.md\n本地 reporter 规则型报告"]
     run --> p8b["09_base_facts.json\n不依赖申请者画像的文档事实整理"]
+    run --> p8c["09_base_reasoning_chains.json\n不依赖申请者画像的文档级逻辑链"]
     run --> p9["09_applicability.json\nLLM 适用性判断"]
     run --> p10["10_llm_report.md\nLLM 自然语言报告"]
     run --> cross["07_retrieval_crosscheck.html/json/md\n检索交叉验证，dry-run 常见"]
@@ -158,6 +161,9 @@ flowchart LR
 
     facts["document facts only\nno profile / no runtime metadata"] --> bh["base facts cache key"]
     bh --> bjson["outputs/llm_cache/*.json\nprofile-independent base facts"]
+
+    basefacts["document facts + base facts + question set"] --> rh["base reasoning cache key"]
+    rh --> rjson["outputs/llm_cache/*.json\nprofile-independent reasoning chains"]
 ```
 
 当前缓存还不是完整 index 管理层：
@@ -165,6 +171,7 @@ flowchart LR
 - embedding cache 是按输入文本集合 hash 保存 `.npy` 矩阵。
 - LLM cache 是按 prompt/schema/input 保存 response。
 - base facts cache 只看文档事实，不看申请者画像，因此 TOEIC/TOEFL 等 profile 变化可以复用同一份文档事实整理。
+- base reasoning chains cache 只看文档事实、base facts 和固定问题集，不看申请者画像；它回答通用招生规则问题，并保留 reasoning steps/evidence/uncertainty。
 - 未来需要 document-level manifest，把 `pdf_hash`、`chunker_version`、`prompt_version`、`schema_version` 统一起来。
 
 ## Git 管理边界

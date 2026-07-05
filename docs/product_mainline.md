@@ -34,12 +34,13 @@
 
 ```text
 PDF
- -> Evidence Index
- -> Question Plan
- -> Recursive Evidence Gathering
- -> Logic Chain Synthesis
- -> Applicability Pass
- -> Narrative Report
+  -> Evidence Index
+  -> Question Plan
+  -> Recursive Evidence Gathering
+  -> Base Reasoning Chains
+  -> Logic Chain Synthesis
+  -> Applicability Pass
+  -> Narrative Report
 ```
 
 ### 1. Evidence Index
@@ -155,6 +156,7 @@ LLM 不只返回字段，而是返回可复核的逻辑链。
 
 - `src/admission_parser/applicability.py`
 - `09_base_facts.json`
+- `09_base_reasoning_chains.json`
 - `09_applicability.json`
 - `10_llm_report.md`
 
@@ -239,6 +241,7 @@ profile -> retrieve cached evidence/chains -> applicability -> report
 - local embedding cache
 - LLM extraction cache
 - profile-independent base facts cache
+- profile-independent base reasoning chains cache
 - applicability/report cache MVP
 
 待修：

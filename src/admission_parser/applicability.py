@@ -17,6 +17,15 @@ from .utils import ensure_dir, write_json
 APPLICABILITY_PROMPT_VERSION = "applicability_v2"
 NARRATIVE_REPORT_PROMPT_VERSION = "narrative_report_v2"
 BASE_FACTS_PROMPT_VERSION = "base_facts_v1"
+BASE_REASONING_CHAINS_PROMPT_VERSION = "base_reasoning_chains_v1"
+
+BASE_REASONING_QUESTIONS = (
+    "这份募集要项中，招生对象和可报考的学院/系/课程范围是什么？",
+    "这份募集要项中，出願資格和事前資格審査的通用规则是什么？",
+    "这份募集要项中，英语外部考试的接受范围、有效期、提交方式和例外是什么？",
+    "这份募集要项中，申请材料的通用规则和条件性材料是什么？",
+    "这份募集要项中，考试日程、A/B日程或口试/笔试规则有哪些需要特别确认？",
+)
 
 DOCUMENT_FACT_KEYS = (
     "university",
@@ -101,6 +110,25 @@ class BaseFactsResult(BaseModel):
     uncertainties: list[str] = Field(default_factory=list)
 
 
+class ReasoningEvidence(BaseModel):
+    source_pages: list[int] = Field(default_factory=list)
+    quote: str = Field("", description="Short source excerpt or structured evidence summary.")
+
+
+class BaseReasoningChain(BaseModel):
+    question: str = ""
+    answer: str = Field("", description="Profile-independent Chinese answer grounded in base facts.")
+    confidence: Literal["high", "medium", "low"] = "medium"
+    reasoning_steps: list[str] = Field(default_factory=list)
+    evidence: list[ReasoningEvidence] = Field(default_factory=list)
+    uncertainty: str = ""
+
+
+class BaseReasoningChainsResult(BaseModel):
+    chains: list[BaseReasoningChain] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+
+
 APPLICABILITY_SYSTEM_PROMPT = """
 你是日本大学院募集要项的适用性判定专家。你会收到已经结构化抽取后的 JSON 和申请者画像。
 你的任务不是重新抽取 PDF，而是判断已有条目是否适用于该申请者。
@@ -131,6 +159,18 @@ BASE_FACTS_SYSTEM_PROMPT = """
 重点保留：申请时间、提交方式、必要材料、考试日程、费用、英语考试规则、警告和不确定点。
 如果日语条件表达需要解释，例如「数学系を除く全系」「該当者のみ」「又は」，可以用中文解释其一般含义，但不要绑定到具体用户。
 每个事实尽量保留 source_pages 和短 evidence。
+输出必须是中文；证据片段可以保留原文日文。
+""".strip()
+
+BASE_REASONING_CHAINS_SYSTEM_PROMPT = """
+你是日本大学院募集要项的文档级逻辑链整理助手。
+你会收到结构化 JSON、profile-independent base facts，以及一组固定问题。
+你的任务是回答这些不依赖具体申请者画像的问题，并输出可复核的 reasoning chain。
+不要判断某个具体申请者是否适用；不要使用未提供的申请者画像。
+必须只使用输入 JSON 和 base facts 中存在的信息，不要编造日期、金额、系名、资格编号或材料。
+每个 chain 应包含 question、answer、confidence、reasoning_steps、evidence、uncertainty。
+reasoning_steps 应该解释“如何从证据得到结论”，但不要写隐藏推理；用简洁、可审计的步骤。
+遇到证据不足时，把 confidence 设为 low 或 medium，并在 uncertainty / open_questions 中说明。
 输出必须是中文；证据片段可以保留原文日文。
 """.strip()
 
@@ -246,6 +286,16 @@ def _base_facts_payload(base_facts: BaseFactsResult | dict[str, Any] | None) -> 
     return {}
 
 
+def _base_reasoning_payload(
+    reasoning_chains: BaseReasoningChainsResult | dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(reasoning_chains, BaseReasoningChainsResult):
+        return reasoning_chains.model_dump(mode="json")
+    if isinstance(reasoning_chains, dict):
+        return stable_payload(reasoning_chains)
+    return {}
+
+
 def generate_base_facts(
     structured: dict[str, Any],
     model: str | None = None,
@@ -278,20 +328,75 @@ def generate_base_facts(
     return result
 
 
+def generate_base_reasoning_chains(
+    structured: dict[str, Any],
+    base_facts: BaseFactsResult | dict[str, Any] | None = None,
+    questions: tuple[str, ...] | list[str] = BASE_REASONING_QUESTIONS,
+    model: str | None = None,
+    cache_dir: str | Path | None = Path("outputs") / "llm_cache",
+) -> BaseReasoningChainsResult:
+    selected_model = _model(model)
+    facts_payload = document_facts_payload(structured)
+    base_facts_payload = _base_facts_payload(base_facts)
+    question_list = list(questions)
+    payload = {
+        "structured": facts_payload,
+        "base_facts": base_facts_payload,
+        "questions": question_list,
+    }
+    key = _cache_key(
+        "base_reasoning_chains",
+        BASE_REASONING_CHAINS_PROMPT_VERSION,
+        selected_model,
+        payload,
+    )
+    cached = _load_cache(cache_dir, key, BaseReasoningChainsResult)
+    if cached is not None:
+        return cached
+
+    user_prompt = (
+        "请基于以下结构化募集要项 JSON 和 base facts，回答固定问题并生成 base reasoning chains。\n\n"
+        f"固定问题:\n{json.dumps(question_list, ensure_ascii=False, indent=2)}\n\n"
+        f"Base facts:\n{json.dumps(base_facts_payload, ensure_ascii=False, indent=2)}\n\n"
+        f"结构化 JSON:\n{json.dumps(facts_payload, ensure_ascii=False, indent=2)}"
+    )
+    result = _client().chat.completions.create(
+        model=selected_model,
+        response_model=BaseReasoningChainsResult,
+        messages=[
+            {"role": "system", "content": BASE_REASONING_CHAINS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_retries=2,
+    )
+    _write_cache(
+        cache_dir,
+        key,
+        result,
+        "base_reasoning_chains",
+        BASE_REASONING_CHAINS_PROMPT_VERSION,
+        selected_model,
+    )
+    return result
+
+
 def evaluate_applicability(
     structured: dict[str, Any],
     profile: ApplicantProfileV2,
     base_facts: BaseFactsResult | dict[str, Any] | None = None,
+    base_reasoning_chains: BaseReasoningChainsResult | dict[str, Any] | None = None,
     model: str | None = None,
     cache_dir: str | Path | None = Path("outputs") / "llm_cache",
 ) -> ApplicabilityResult:
     selected_model = _model(model)
     stable_structured = document_facts_payload(structured)
     stable_base_facts = _base_facts_payload(base_facts)
+    stable_base_reasoning = _base_reasoning_payload(base_reasoning_chains)
     payload = {
         "profile": _profile_payload(profile),
         "structured": stable_structured,
         "base_facts": stable_base_facts,
+        "base_reasoning_chains": stable_base_reasoning,
     }
     key = _cache_key("applicability", APPLICABILITY_PROMPT_VERSION, selected_model, payload)
     cached = _load_cache(cache_dir, key, ApplicabilityResult)
@@ -302,6 +407,7 @@ def evaluate_applicability(
         "请基于以下申请者画像和结构化募集要项 JSON，判断各条目是否适用于该申请者。\n\n"
         f"申请者画像:\n{json.dumps(_profile_payload(profile), ensure_ascii=False, indent=2)}\n\n"
         f"Base facts:\n{json.dumps(stable_base_facts, ensure_ascii=False, indent=2)}\n\n"
+        f"Base reasoning chains:\n{json.dumps(stable_base_reasoning, ensure_ascii=False, indent=2)}\n\n"
         f"结构化 JSON:\n{json.dumps(stable_structured, ensure_ascii=False, indent=2)}"
     )
     result = _client().chat.completions.create(
@@ -322,6 +428,7 @@ def generate_narrative_report(
     profile: ApplicantProfileV2,
     applicability: ApplicabilityResult | dict[str, Any] | None = None,
     base_facts: BaseFactsResult | dict[str, Any] | None = None,
+    base_reasoning_chains: BaseReasoningChainsResult | dict[str, Any] | None = None,
     model: str | None = None,
     cache_dir: str | Path | None = Path("outputs") / "llm_cache",
 ) -> NarrativeReportResult:
@@ -334,10 +441,12 @@ def generate_narrative_report(
     stable_structured = document_facts_payload(structured)
     stable_applicability = stable_payload(applicability_payload or {})
     stable_base_facts = _base_facts_payload(base_facts)
+    stable_base_reasoning = _base_reasoning_payload(base_reasoning_chains)
     payload = {
         "profile": _profile_payload(profile),
         "structured": stable_structured,
         "base_facts": stable_base_facts,
+        "base_reasoning_chains": stable_base_reasoning,
         "applicability": stable_applicability,
     }
     key = _cache_key("narrative_report", NARRATIVE_REPORT_PROMPT_VERSION, selected_model, payload)
@@ -349,6 +458,7 @@ def generate_narrative_report(
         "请基于以下数据生成自然语言 Markdown 报告。\n\n"
         f"申请者画像:\n{json.dumps(_profile_payload(profile), ensure_ascii=False, indent=2)}\n\n"
         f"Base facts:\n{json.dumps(stable_base_facts, ensure_ascii=False, indent=2)}\n\n"
+        f"Base reasoning chains:\n{json.dumps(stable_base_reasoning, ensure_ascii=False, indent=2)}\n\n"
         f"结构化 JSON:\n{json.dumps(stable_structured, ensure_ascii=False, indent=2)}\n\n"
         f"适用性判定 JSON:\n{json.dumps(stable_applicability, ensure_ascii=False, indent=2)}"
     )
@@ -372,6 +482,7 @@ def main() -> None:
     parser.add_argument("--llm-report-output", default=None)
     parser.add_argument("--skip-applicability", action="store_true")
     parser.add_argument("--skip-base-facts", action="store_true")
+    parser.add_argument("--skip-base-reasoning-chains", action="store_true")
     parser.add_argument("--skip-llm-report", action="store_true")
     parser.add_argument("--llm-cache-dir", default=str(Path("outputs") / "llm_cache"))
     parser.add_argument("--model", default=None)
@@ -388,12 +499,24 @@ def main() -> None:
             model=args.model,
             cache_dir=args.llm_cache_dir,
         )
+    base_reasoning_chains = None
+    if (
+        not args.skip_base_reasoning_chains
+        and (not args.skip_applicability or not args.skip_llm_report)
+    ):
+        base_reasoning_chains = generate_base_reasoning_chains(
+            structured,
+            base_facts=base_facts,
+            model=args.model,
+            cache_dir=args.llm_cache_dir,
+        )
     applicability = None
     if not args.skip_applicability:
         applicability = evaluate_applicability(
             structured,
             profile,
             base_facts=base_facts,
+            base_reasoning_chains=base_reasoning_chains,
             model=args.model,
             cache_dir=args.llm_cache_dir,
         )
@@ -409,6 +532,7 @@ def main() -> None:
             profile,
             applicability=applicability,
             base_facts=base_facts,
+            base_reasoning_chains=base_reasoning_chains,
             model=args.model,
             cache_dir=args.llm_cache_dir,
         )
