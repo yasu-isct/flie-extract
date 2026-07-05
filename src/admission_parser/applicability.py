@@ -17,6 +17,18 @@ from .utils import ensure_dir, write_json
 APPLICABILITY_PROMPT_VERSION = "applicability_v2"
 NARRATIVE_REPORT_PROMPT_VERSION = "narrative_report_v2"
 
+RUNTIME_METADATA_KEYS = {
+    "_artifacts",
+    "llm_cache_dir",
+    "llm_cache_hits",
+    "llm_cache_misses",
+}
+
+RUNTIME_METADATA_PREFIXES = (
+    "elapsed_",
+    "runtime_",
+)
+
 
 class ApplicabilityDecision(BaseModel):
     item_type: Literal[
@@ -97,13 +109,30 @@ def _compact_json(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _is_runtime_metadata_key(key: str) -> bool:
+    return key in RUNTIME_METADATA_KEYS or key.startswith(RUNTIME_METADATA_PREFIXES)
+
+
+def stable_payload(payload: Any) -> Any:
+    """Return the semantic payload used for applicability/report prompts and cache keys."""
+    if isinstance(payload, dict):
+        return {
+            key: stable_payload(value)
+            for key, value in payload.items()
+            if not _is_runtime_metadata_key(str(key))
+        }
+    if isinstance(payload, list):
+        return [stable_payload(item) for item in payload]
+    return payload
+
+
 def _cache_key(kind: str, prompt_version: str, model: str, payload: dict[str, Any]) -> str:
     raw = _compact_json(
         {
             "kind": kind,
             "prompt_version": prompt_version,
             "model": model,
-            "payload": payload,
+            "payload": stable_payload(payload),
         }
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
@@ -160,9 +189,10 @@ def evaluate_applicability(
     cache_dir: str | Path | None = Path("outputs") / "llm_cache",
 ) -> ApplicabilityResult:
     selected_model = _model(model)
+    stable_structured = stable_payload(structured)
     payload = {
         "profile": _profile_payload(profile),
-        "structured": structured,
+        "structured": stable_structured,
     }
     key = _cache_key("applicability", APPLICABILITY_PROMPT_VERSION, selected_model, payload)
     cached = _load_cache(cache_dir, key, ApplicabilityResult)
@@ -172,7 +202,7 @@ def evaluate_applicability(
     user_prompt = (
         "请基于以下申请者画像和结构化募集要项 JSON，判断各条目是否适用于该申请者。\n\n"
         f"申请者画像:\n{json.dumps(_profile_payload(profile), ensure_ascii=False, indent=2)}\n\n"
-        f"结构化 JSON:\n{json.dumps(structured, ensure_ascii=False, indent=2)}"
+        f"结构化 JSON:\n{json.dumps(stable_structured, ensure_ascii=False, indent=2)}"
     )
     result = _client().chat.completions.create(
         model=selected_model,
@@ -200,10 +230,12 @@ def generate_narrative_report(
         if isinstance(applicability, ApplicabilityResult)
         else applicability
     )
+    stable_structured = stable_payload(structured)
+    stable_applicability = stable_payload(applicability_payload or {})
     payload = {
         "profile": _profile_payload(profile),
-        "structured": structured,
-        "applicability": applicability_payload or {},
+        "structured": stable_structured,
+        "applicability": stable_applicability,
     }
     key = _cache_key("narrative_report", NARRATIVE_REPORT_PROMPT_VERSION, selected_model, payload)
     cached = _load_cache(cache_dir, key, NarrativeReportResult)
@@ -213,8 +245,8 @@ def generate_narrative_report(
     user_prompt = (
         "请基于以下数据生成自然语言 Markdown 报告。\n\n"
         f"申请者画像:\n{json.dumps(_profile_payload(profile), ensure_ascii=False, indent=2)}\n\n"
-        f"结构化 JSON:\n{json.dumps(structured, ensure_ascii=False, indent=2)}\n\n"
-        f"适用性判定 JSON:\n{json.dumps(applicability_payload or {}, ensure_ascii=False, indent=2)}"
+        f"结构化 JSON:\n{json.dumps(stable_structured, ensure_ascii=False, indent=2)}\n\n"
+        f"适用性判定 JSON:\n{json.dumps(stable_applicability, ensure_ascii=False, indent=2)}"
     )
     result = _client().chat.completions.create(
         model=selected_model,
